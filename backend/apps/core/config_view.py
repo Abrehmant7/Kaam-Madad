@@ -19,11 +19,18 @@ class ClientConfigView(APIView):
 
     def get(self, request):
         from apps.accounts.phone_verification import provider_status
+        from apps.providers import registry
 
         return Response(
             {
                 "deployment_mode": settings.DEPLOYMENT_MODE,
                 "phone_verification": provider_status(),
+                "ai": registry.status(),
+                "voice_limits": {
+                    "max_audio_bytes": settings.VOICE_LIMITS["MAX_AUDIO_BYTES"],
+                    "max_audio_seconds": settings.VOICE_LIMITS["MAX_AUDIO_SECONDS"],
+                    "max_synthesis_chars": settings.VOICE_LIMITS["MAX_SYNTHESIS_CHARS"],
+                },
                 "languages": [code for code, _name in settings.LANGUAGES],
                 "default_language": "ur",
             }

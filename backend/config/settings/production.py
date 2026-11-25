@@ -16,7 +16,18 @@ DEBUG = False
 # deployment refuses to start with simulated phone verification (NFR-04).
 DEPLOYMENT_MODE = DEPLOYMENT_MODE or DEPLOYMENT_MODE_LIVE  # noqa: F405
 PHONE_VERIFICATION_PROVIDER = PHONE_VERIFICATION_PROVIDER or PHONE_PROVIDER_UNCONFIGURED  # noqa: F405
-check_simulation_allowed(DEPLOYMENT_MODE, PHONE_VERIFICATION_PROVIDER)
+SPEECH_TO_TEXT_PROVIDER = SPEECH_TO_TEXT_PROVIDER or "unconfigured"  # noqa: F405
+INTERPRETATION_PROVIDER = INTERPRETATION_PROVIDER or "unconfigured"  # noqa: F405
+TEXT_TO_SPEECH_PROVIDER = TEXT_TO_SPEECH_PROVIDER or "unconfigured"  # noqa: F405
+check_simulation_allowed(
+    DEPLOYMENT_MODE,
+    PHONE_VERIFICATION_PROVIDER,
+    {
+        "SPEECH_TO_TEXT_PROVIDER": SPEECH_TO_TEXT_PROVIDER,
+        "INTERPRETATION_PROVIDER": INTERPRETATION_PROVIDER,
+        "TEXT_TO_SPEECH_PROVIDER": TEXT_TO_SPEECH_PROVIDER,
+    },
+)
 
 # Fail fast instead of starting with an unsafe configuration.
 if not SECRET_KEY or len(SECRET_KEY) < 50 or SECRET_KEY.startswith("django-insecure"):  # noqa: F405

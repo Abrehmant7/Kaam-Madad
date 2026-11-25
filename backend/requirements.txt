@@ -1,11 +1,19 @@
 # Resolved backend dependencies, generated with `python -m pip freeze` from requirements.in.
 # Tested on Python 3.14.0 (Windows 11) against PostgreSQL 18.7. Django 6.1 requires Python >= 3.12.
+anyio==4.16.0
 asgiref==3.13.0
+certifi==2026.11.20
 Django==6.1.3
 djangorestframework==3.18.3
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+mutagen==1.48.1
 psycopg==3.3.9
 psycopg-binary==3.3.9
 python-dotenv==1.2.4
 sqlparse==0.6.1
+typing_extensions==4.16.0
 tzdata==2026.6
 whitenoise==6.12.0

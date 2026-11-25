@@ -10,6 +10,7 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 
 from apps.core.config_view import ClientConfigView
+from apps.voice import urls as voice_urls
 from apps.core.views import api_not_found, spa_index
 
 admin.site.site_header = "Kaam Madad staff administration"
@@ -21,6 +22,8 @@ api_v1_patterns = [
     path("config/", ClientConfigView.as_view(), name="client-config"),
     path("auth/", include("apps.accounts.urls")),
     path("catalog/", include("apps.catalog.urls")),
+    path("audio/", include(voice_urls.audio_patterns)),
+    path("interpretations/", include(voice_urls.interpretation_patterns)),
 ]
 
 urlpatterns = [

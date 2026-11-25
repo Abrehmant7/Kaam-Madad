@@ -66,13 +66,25 @@ PHONE_PROVIDER_DEMO = "demo"
 PHONE_PROVIDER_UNCONFIGURED = "unconfigured"
 
 
-def check_simulation_allowed(deployment_mode: str, phone_provider: str) -> None:
-    """Simulated authentication is only allowed in an explicitly demo deployment (AUTH-03, NFR-04)."""
+AI_PROVIDER_FIXTURE = "fixture"
+
+
+def check_simulation_allowed(
+    deployment_mode: str, phone_provider: str, ai_providers: dict[str, str | None] | None = None
+) -> None:
+    """Simulated authentication and fixture AI results are only allowed in an explicitly
+    demo deployment (AUTH-03, AI-01, NFR-04)."""
     if phone_provider == PHONE_PROVIDER_DEMO and deployment_mode != DEPLOYMENT_MODE_DEMO:
         raise ImproperlyConfigured(
             "PHONE_VERIFICATION_PROVIDER=demo (simulated phone codes) is only allowed when "
             "APP_DEPLOYMENT_MODE=demo. Live deployments must use a real provider or 'unconfigured'."
         )
+    for setting_name, value in (ai_providers or {}).items():
+        if value == AI_PROVIDER_FIXTURE and deployment_mode != DEPLOYMENT_MODE_DEMO:
+            raise ImproperlyConfigured(
+                f"{setting_name}=fixture (simulated AI results) is only allowed when APP_DEPLOYMENT_MODE=demo. "
+                "Live deployments must use a real provider or 'unconfigured'."
+            )
 
 
 def env_list(name: str, default: Iterable[str] = ()) -> list[str]:

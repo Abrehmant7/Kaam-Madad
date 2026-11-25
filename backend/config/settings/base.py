@@ -17,6 +17,7 @@ from config.env import (
     DEPLOYMENT_MODE_LIVE,
     PHONE_PROVIDER_DEMO,
     PHONE_PROVIDER_UNCONFIGURED,
+    env_bool,
     env_choice,
     env_int,
     env_list,
@@ -50,6 +51,7 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.accounts",
     "apps.catalog",
+    "apps.voice",
 ]
 
 # --------------------------------------------------------------------------
@@ -70,6 +72,55 @@ PHONE_VERIFICATION_POLICY = {
     "MAX_ATTEMPTS": 5,  # wrong entries before the code is invalidated
     "RESEND_COOLDOWN_SECONDS": 60,  # minimum gap between codes
     "MAX_SENDS_PER_HOUR": 5,  # codes per account per rolling hour
+}
+
+# --------------------------------------------------------------------------
+# Audio and AI providers (M3) — separately configurable per capability
+# --------------------------------------------------------------------------
+# fixture = deterministic simulated results (demo deployments only; refused in live mode)
+# gemini / azure / elevenlabs = real providers; unconfigured = honest "not available".
+# Each environment module supplies defaults (development: fixture; production: unconfigured).
+SPEECH_TO_TEXT_PROVIDER = env_choice("SPEECH_TO_TEXT_PROVIDER", {"fixture", "gemini", "unconfigured"})
+INTERPRETATION_PROVIDER = env_choice("INTERPRETATION_PROVIDER", {"fixture", "gemini", "unconfigured"})
+TEXT_TO_SPEECH_PROVIDER = env_choice(
+    "TEXT_TO_SPEECH_PROVIDER", {"fixture", "azure", "elevenlabs", "unconfigured"}
+)
+
+# Google Gemini API (speech-to-text + interpretation). Key stays on the server.
+GEMINI_API_KEY = env_str("GEMINI_API_KEY")
+GEMINI_API_BASE = env_str("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+GEMINI_API_REVISION = env_str("GEMINI_API_REVISION", "2026-05-20")
+GEMINI_STT_MODEL = env_str("GEMINI_STT_MODEL", "gemini-3.8-flash")
+GEMINI_INTERPRETATION_MODEL = env_str("GEMINI_INTERPRETATION_MODEL", "gemini-3.8-flash")
+
+# Azure AI Speech (text-to-speech with Urdu ur-PK neural voices).
+AZURE_SPEECH_KEY = env_str("AZURE_SPEECH_KEY")
+AZURE_SPEECH_REGION = env_str("AZURE_SPEECH_REGION")
+AZURE_TTS_VOICE_UR = env_str("AZURE_TTS_VOICE_UR", "ur-PK-UzmaNeural")
+AZURE_TTS_VOICE_EN = env_str("AZURE_TTS_VOICE_EN", "en-IN-NeerjaNeural")
+AZURE_TTS_OUTPUT_FORMAT = env_str("AZURE_TTS_OUTPUT_FORMAT", "riff-24khz-16bit-mono-pcm")
+
+# ElevenLabs text-to-speech (eleven_v3 supports Urdu). The key stays on the server; the voice ID is any
+# voice in the account's ElevenLabs voice library. Output: mp3_* (default) or wav_* formats only.
+ELEVENLABS_API_KEY = env_str("ELEVENLABS_API_KEY")
+ELEVENLABS_VOICE_ID = env_str("ELEVENLABS_VOICE_ID")
+ELEVENLABS_MODEL_ID = env_str("ELEVENLABS_MODEL_ID", "eleven_v3")
+ELEVENLABS_API_BASE = env_str("ELEVENLABS_API_BASE", "https://api.elevenlabs.io")
+ELEVENLABS_OUTPUT_FORMAT = env_str("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128")
+# Zero-retention mode (enable_logging=false) is only available to ElevenLabs enterprise accounts.
+ELEVENLABS_ZERO_RETENTION = env_bool("ELEVENLABS_ZERO_RETENTION", False)
+
+# Per-attempt timeout and retry budget for every provider call (AI-03).
+AI_PROVIDER_TIMEOUT_SECONDS = env_int("AI_PROVIDER_TIMEOUT_SECONDS", 20, minimum=1)
+AI_PROVIDER_MAX_RETRIES = env_int("AI_PROVIDER_MAX_RETRIES", 1, minimum=0)
+
+# Central limits (AI-03): push-to-talk clips ≤ 60 s and ≤ 10 MB; synthesis text bounded.
+VOICE_LIMITS = {
+    "MAX_AUDIO_BYTES": 10 * 1024 * 1024,
+    "MAX_AUDIO_SECONDS": 60,
+    "MIN_AUDIO_SECONDS": 0.3,
+    "MAX_INTERPRET_CHARS": 4000,
+    "MAX_SYNTHESIS_CHARS": 1500,
 }
 
 MIDDLEWARE = [
@@ -230,6 +281,8 @@ API_THROTTLE_RATES = {
     "auth_login_phone": "10/hour",
     "auth_signup_ip": "30/hour",
     "phone_code_ip": "60/hour",
+    "audio_upload_user": "60/hour",
+    "ai_request_user": "120/hour",
 }
 
 # --------------------------------------------------------------------------
