@@ -10,12 +10,15 @@ using Urdu text, spoken instructions, recognisable icons and guided choices.
 
 Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 
-> **Status: Module M1 (Foundation) complete.** The app currently provides the project skeleton, the
-> custom user model, health checks, and an Urdu landing page showing live server status. Registration,
-> job requests and bookings are **not** implemented yet. See [docs/progress.md](docs/progress.md).
+> **Status: Modules M1 (Foundation) and M2 (Accounts, language, catalog) complete.** Workers and customers
+> can sign up, log in, confirm their phone through a clearly labelled **demo** flow, switch Urdu/English, and
+> see a minimal role home. The trade/service/area catalog is in the database. Worker onboarding, job
+> requests, recommendations, chat, quotations and bookings are **not** implemented yet.
+> See [docs/progress.md](docs/progress.md).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
 - Architecture and decisions: [docs/architecture.md](docs/architecture.md)
+- API contracts: [docs/api.md](docs/api.md)
 - Module progress, checks run, limitations: [docs/progress.md](docs/progress.md)
 
 ## Stack
@@ -30,7 +33,8 @@ one origin. Full version list: [docs/architecture.md](docs/architecture.md#1-sta
 - Node.js **22.22+** (tested 24.12) and npm
 - **Either** Docker Desktop / Docker Engine with Compose **or** an existing PostgreSQL 14+ server
 
-No speech, OCR, OTP, NADRA or other provider keys are needed for M1.
+No speech, OCR, OTP, NADRA or other provider keys are needed (none are integrated yet; see
+[Integrations not available yet](#integrations-not-available-yet)).
 
 ## 1. Configure
 
@@ -95,8 +99,9 @@ cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python manage.py migrate
-python manage.py createsuperuser      # phone number, e.g. 03001234567 (no spaces), then a password
+python manage.py migrate              # also creates the rate-limit cache table
+python manage.py seed_catalog         # trades, services, sample areas, speciality questions (safe to re-run)
+python manage.py createsuperuser      # optional staff login: phone e.g. 03001234567 (no spaces), then a password
 python manage.py runserver 127.0.0.1:8000
 ```
 
@@ -106,10 +111,14 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python manage.py migrate
-python manage.py createsuperuser      # phone number, e.g. 03001234567 (no spaces), then a password
+python manage.py migrate              # also creates the rate-limit cache table
+python manage.py seed_catalog         # trades, services, sample areas, speciality questions (safe to re-run)
+python manage.py createsuperuser      # optional staff login: phone e.g. 03001234567 (no spaces), then a password
 python manage.py runserver 127.0.0.1:8000
 ```
+
+`seed_catalog` matches records by stable code: re-running it creates nothing new, refreshes labels of known
+entries, keeps staff deactivations, and never deletes staff-created entries. Use `--dry-run` to preview.
 
 If PowerShell blocks `Activate.ps1`, run
 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or call `.\.venv\Scripts\python.exe` directly.
@@ -134,7 +143,45 @@ To change the proxy target, copy `frontend/.env.example` to `frontend/.env.local
 To open the dev site from a phone on the same network: `npm run dev -- --host`, and add the computer's LAN
 IP to `DJANGO_ALLOWED_HOSTS` and `http://<ip>:5173` to `DJANGO_CSRF_TRUSTED_ORIGINS` in `.env`.
 
-## 5. Checks and tests
+## 5. Using the app (M2)
+
+Local development runs as a **demo deployment** (`APP_DEPLOYMENT_MODE=demo`): every screen shows a demo banner
+and new accounts are marked as demo accounts. Use fictional phone numbers.
+
+**Create a worker and a customer**
+1. Open http://localhost:5173 → **شروع کریں / Get started**.
+2. Choose a language (applies immediately), then **میں کاریگر ہوں / I am a worker** or
+   **مجھے کاریگر چاہیے / I need a worker** → continue.
+3. Enter a mobile number (any format, e.g. `0300 1234567`) and a password (8+ characters, not only digits,
+   not a common password) twice → **Create account**. You are logged in and taken to phone confirmation.
+4. Log out (header button) and repeat with another number and the other role.
+
+**Log in**: **Log in** on the landing page, phone number + password. Workers land on `/worker`, customers on
+`/customer`; opening the other role's page redirects to your own home. Sessions survive page reloads for 14 days.
+
+**Demo phone confirmation**: on the phone-confirmation screen press **Get a demo code**. No SMS is sent — the
+code appears in a box labelled "Demo code — not sent by SMS". Enter it and press **Confirm**. The account then
+shows **"Demo confirmation (not real verification)"**. Codes expire after 10 minutes, allow 5 wrong attempts,
+can be re-requested after 60 s, and at most 5 times per hour. Phone confirmation never verifies legal identity or
+skills.
+
+**Switch languages**: the header button shows the other language (**English** / **اردو**). Signed out, the
+choice is remembered on the device. Signed in, it is also saved to your account; after any login the account's
+saved language is applied.
+
+**Catalog**: http://localhost:5173/catalog shows trades, their services, the three speciality questions and the
+sample areas from the API. Staff manage the catalog at `/admin/` (Service catalog section).
+
+### Integrations not available yet
+
+| Capability | Status |
+|---|---|
+| SMS / OTP delivery | **Not integrated.** Demo mode simulates codes (no SMS). With `PHONE_VERIFICATION_PROVIDER=unconfigured` the app honestly says SMS confirmation is unavailable. Live mode refuses to start with the demo provider. |
+| NADRA / identity verification, CNIC OCR | Not implemented (M4; NADRA only with authorised access) |
+| Speech-to-text, interpretation, text-to-speech | Not implemented (M3). The audio control exists but shows nothing without real audio. |
+| Recommendations, chat, quotations, bookings, reviews, reports | Not implemented (M6–M10) |
+
+## 6. Checks and tests
 
 ```bash
 # Backend (from backend/, venv active) — runs against a real PostgreSQL test database
@@ -155,7 +202,7 @@ curl http://localhost:5173/api/v1/health/live/    # {"status":"ok"}
 curl http://localhost:5173/api/v1/health/ready/   # {"status":"ok","checks":{"database":"ok"}} or 503
 ```
 
-## 6. Production-like local run (same origin)
+## 7. Production-like local run (same origin)
 
 Builds the frontend and lets Django serve everything on one port, with production settings
 (HTTPS redirect disabled only because this local test uses plain HTTP):
@@ -188,9 +235,9 @@ one.
 ## Libraries, services and tools disclosure
 
 - **Libraries**: listed with versions in [docs/architecture.md](docs/architecture.md#1-stack-resolved-versions-m1),
-  `backend/requirements.txt` and `frontend/package-lock.json`. Urdu font: Noto Nastaliq Urdu (SIL Open Font
+  `backend/requirements.txt` and `frontend/package-lock.json`. Icons: lucide-react (ISC). Urdu font: Noto Nastaliq Urdu (SIL Open Font
   License) via `@fontsource/noto-nastaliq-urdu`, self-hosted.
-- **External services / AI providers**: none in M1. Speech, interpretation, OCR, TTS, OTP and identity
+- **External services / AI providers**: none yet (M2 phone confirmation is a labelled simulation). Speech, interpretation, OCR, TTS, OTP and identity
   providers arrive in later modules and will be documented with their exact modes.
 - **AI coding tools**: this codebase is being written with AI coding assistance (Claude Code, Anthropic).
 - **Earlier prototype**: the earlier Roshan Rozgaar prototype (the project's former name) served only as

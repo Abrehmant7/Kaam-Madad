@@ -1,4 +1,9 @@
+import { List, LogIn, UserPlus } from "lucide-react";
+import { Link } from "react-router";
+
+import { PATHS } from "../auth/paths";
 import { InfoIcon } from "../components/icons";
+import { ButtonLink } from "../components/ui/Button";
 import { ServerStatusCard } from "../features/health/ServerStatusCard";
 import { useI18n } from "../i18n/context";
 
@@ -15,6 +20,15 @@ export function LandingPage() {
         <p className="text-muted">{t("landing.intro")}</p>
       </section>
 
+      <div className="grid gap-3">
+        <ButtonLink to={PATHS.start} icon={<UserPlus className="size-5" aria-hidden />} fullWidth>
+          {t("landing.getStarted")}
+        </ButtonLink>
+        <ButtonLink to={PATHS.login} variant="secondary" icon={<LogIn className="size-5" aria-hidden />} fullWidth>
+          {t("landing.login")}
+        </ButtonLink>
+      </div>
+
       <aside
         aria-labelledby="dev-notice-title"
         className="flex items-start gap-3 rounded-2xl border border-accent/60 bg-accent-soft p-4"
@@ -29,6 +43,11 @@ export function LandingPage() {
       </aside>
 
       <ServerStatusCard />
+
+      <Link to={PATHS.catalog} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
+        <List className="size-5" aria-hidden />
+        {t("landing.catalogLink")}
+      </Link>
     </div>
   );
 }

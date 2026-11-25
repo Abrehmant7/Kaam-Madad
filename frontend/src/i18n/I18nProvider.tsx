@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useLayoutEffect, useMemo, useState } from "react";
 
 import { I18nContext, type I18nContextValue, interpolate, RESOURCES } from "./context";
 import { DEFAULT_LANGUAGE, isLanguage, LANGUAGE_META, type Language, type TranslationKey, type TranslationParams } from "./types";
@@ -38,8 +38,9 @@ export function I18nProvider({ children, initialLanguage }: I18nProviderProps) {
   const dir = LANGUAGE_META[language].dir;
 
   // Keep <html lang/dir> in sync so the browser applies RTL layout, Urdu
-  // shaping, and screen-reader pronunciation for the whole document.
-  useEffect(() => {
+  // shaping, and screen-reader pronunciation for the whole document. A layout
+  // effect applies it in the same commit as the new text (no wrong-direction frame).
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.lang = language;
     root.dir = dir;

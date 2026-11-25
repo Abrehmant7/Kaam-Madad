@@ -13,6 +13,11 @@ export interface I18nContextValue {
   setLanguage: (language: Language) => void;
 }
 
+/** True if `key` is a known translation key (used for codes that come from the server). */
+export function isTranslationKey(key: string): key is TranslationKey {
+  return Object.prototype.hasOwnProperty.call(RESOURCES.ur, key);
+}
+
 export const I18nContext = createContext<I18nContextValue | null>(null);
 
 /** Replace `{name}` placeholders with values from `params`. */

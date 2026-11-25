@@ -1,35 +1,33 @@
-import { render, screen } from "@testing-library/react";
-import { createMemoryRouter } from "react-router";
-import { RouterProvider } from "react-router/dom";
-import { describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
-import { I18nProvider } from "./i18n/I18nProvider";
+import { en } from "./i18n/resources/en";
 import { ur } from "./i18n/resources/ur";
-import { routes } from "./routes";
-import { jsonResponse } from "./test/http";
+import { bootHandlers, jsonResponse, makeUser, mockApi } from "./test/http";
+import { renderApp } from "./test/renderApp";
 
-function renderAt(path: string) {
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  return render(
-    <I18nProvider initialLanguage="ur">
-      <RouterProvider router={router} />
-    </I18nProvider>,
-  );
-}
+const READY = { "GET /api/v1/health/ready/": jsonResponse({ status: "ok", checks: { database: "ok" } }) };
 
 describe("routes", () => {
-  it("renders the Urdu landing page inside the app shell", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ status: "ok", checks: { database: "ok" } })));
-    renderAt("/");
-    expect(screen.getByRole("heading", { level: 1, name: ur["landing.title"] })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: ur["nav.home"] })).toBeInTheDocument();
-    expect(screen.getByRole("main")).toBeInTheDocument();
+  it("renders the Urdu landing page with demo label for anonymous visitors", async () => {
+    mockApi({ ...bootHandlers(), ...READY });
+    renderApp("/", "ur");
+    expect(await screen.findByRole("heading", { level: 1, name: ur["landing.title"] })).toBeInTheDocument();
+    expect(screen.getByText(ur["demo.banner"])).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: ur["landing.getStarted"] })).toHaveAttribute("href", "/start");
     expect(await screen.findByText(ur["status.ready"])).toBeInTheDocument();
   });
 
-  it("renders a not-found page for unknown routes", () => {
-    renderAt("/does/not/exist");
-    expect(screen.getByRole("heading", { level: 1, name: ur["notFound.title"] })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: ur["notFound.home"] })).toHaveAttribute("href", "/");
+  it("renders a not-found page for unknown routes", async () => {
+    mockApi(bootHandlers());
+    renderApp("/does/not/exist", "ur");
+    expect(await screen.findByRole("heading", { level: 1, name: ur["notFound.title"] })).toBeInTheDocument();
+  });
+
+  it("sends signed-in users from the landing page to their role home", async () => {
+    mockApi(bootHandlers(makeUser({ role: "customer", preferred_language: "en" })));
+    const { router } = renderApp("/", "ur");
+    expect(await screen.findByRole("heading", { level: 1, name: en["home.customer.title"] })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/customer");
   });
 });

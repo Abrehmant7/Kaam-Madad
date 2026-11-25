@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { errorEnvelope, jsonResponse } from "../test/http";
-import { ApiError, apiRequest, ConnectionError } from "./client";
+import { ApiError, apiRequest, ConnectionError, setUnauthorizedHandler } from "./client";
 
 describe("apiRequest", () => {
   it("returns parsed JSON and calls the same-origin /api/v1 path", async () => {
@@ -70,6 +70,46 @@ describe("apiRequest", () => {
     const error = await apiRequest("/health/ready/", { timeoutMs: 20 }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ConnectionError);
     expect((error as ConnectionError).reason).toBe("timeout");
+  });
+
+  it("sends the CSRF cookie on mutations and retries once after csrf_failed", async () => {
+    document.cookie = "csrftoken=stale-token";
+    let posts = 0;
+    const calls: Array<{ url: string; token: string | undefined }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit = {}) => {
+        const token = (init.headers as Record<string, string>)["X-CSRFToken"];
+        calls.push({ url, token });
+        if (url.endsWith("/auth/csrf/")) {
+          document.cookie = "csrftoken=fresh-token";
+          return jsonResponse({ csrf_token: "fresh-token" });
+        }
+        posts += 1;
+        return posts === 1
+          ? jsonResponse(errorEnvelope("csrf_failed", "r-csrf"), 403)
+          : jsonResponse({ ok: true });
+      }),
+    );
+
+    await expect(apiRequest("/auth/logout/", { method: "POST" })).resolves.toEqual({ ok: true });
+    expect(calls.map((call) => [call.url, call.token])).toEqual([
+      ["/api/v1/auth/logout/", "stale-token"],
+      ["/api/v1/auth/csrf/", undefined],
+      ["/api/v1/auth/logout/", "fresh-token"],
+    ]);
+    document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  });
+
+  it("reports a 401 to the session-expired handler unless told not to", async () => {
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(errorEnvelope("not_authenticated", "r5"), 401)));
+    await expect(apiRequest("/auth/phone-confirmation/")).rejects.toBeInstanceOf(ApiError);
+    expect(handler).toHaveBeenCalledOnce();
+    await expect(apiRequest("/auth/me/", { skipUnauthorizedHandler: true })).rejects.toBeInstanceOf(ApiError);
+    expect(handler).toHaveBeenCalledOnce();
+    setUnauthorizedHandler(null);
   });
 
   it("propagates caller cancellation instead of reporting a failure", async () => {

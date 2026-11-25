@@ -30,6 +30,7 @@ and marks decisions intentionally left to later modules.
 | Language | TypeScript | 7.0.2 |
 | Styling | Tailwind CSS (+ @tailwindcss/vite) | 4.3.5 |
 | Urdu font | @fontsource/noto-nastaliq-urdu (bundled, self-hosted) | 5.3.0 |
+| Icons (M2) | lucide-react (ISC licence, tree-shaken) | 1.80.0 |
 | Frontend tests | Vitest, jsdom, Testing Library (react, dom, jest-dom, user-event) | 5.1.1, 31.0.1, 16.3.3 / 10.4.2 / 8.0.0 / 14.6.13 |
 
 Exact backend pins live in `backend/requirements.txt` (direct ranges in `backend/requirements.in`); exact
@@ -214,9 +215,91 @@ serves it**. M3 adds authorised download views (MEDIA-01).
 
 | Topic | Module |
 |---|---|
-| Signup/login/logout/me/CSRF bootstrap endpoints, role immutability, rate limits, demo-labelled phone adapter | M2 |
-| Visible Urdu/English switch, preference sync with the account, reusable audio/icon controls | M2 |
-| Deployment mode (production vs demo) configuration + startup check rejecting simulated providers (NFR-04) | M2/M3 (when simulated providers exist) |
-| Password policy suited to low-literacy users (Django defaults apply for now) | M2 |
+| Real SMS/OTP provider integration (boundary exists; see §8) | Before a real pilot |
+| Password policy suited to low-literacy users (Django defaults still apply) | Revisit with user testing |
+| Startup check for simulated speech/OCR/identity providers (extends the M2 phone check) | M3/M4 |
+| Restricted account state beyond `is_active`, user blocking | M10 |
+| Verified area centre coordinates (needed for approximate distance) | M6 |
 | Provider adapters, private media upload/download | M3 |
 | Content-Security-Policy (needs browser verification of admin + SPA), WSGI server, HTTPS deployment, HSTS subdomains/preload | M11 |
+
+## 8. Module M2 — accounts, language, catalog
+
+API contracts: [api.md](api.md).
+
+### Authentication and sessions
+- Endpoints `auth/csrf`, `auth/signup`, `auth/login`, `auth/logout`, `auth/me`, `auth/me/language` (the only
+  editable profile field). Django `login()`/`logout()`; login rotates the session key (fixation-tested) and the
+  CSRF token. Sessions last 14 days (`SESSION_COOKIE_AGE`), HttpOnly, `SameSite=Lax`, `Secure` in production.
+- `CsrfEnforcedSessionAuthentication` (`apps/accounts/authentication.py`) replaces DRF's session auth: CSRF is
+  enforced on **every** unsafe request, including anonymous signup/login (DRF's default skips anonymous CSRF),
+  and missing sessions return **401** `not_authenticated` instead of 403. The CSRF cookie is readable by JS
+  (`CSRF_COOKIE_HTTPONLY = False`) so the SPA can echo it; the session cookie is not.
+- Strict serializers reject unknown fields (`unexpected_field`), so signup cannot set staff flags, demo flag,
+  verification or restriction state; the language endpoint cannot change `role`. `role` has no update path.
+- Suspension = `is_active=False`: Django refuses login and drops the user from existing sessions on the next
+  request (tested). `account_inactive` is only revealed to someone who supplies the correct password.
+- Role permissions: `IsMarketplaceUser`, `IsWorker`, `IsCustomer` (`apps/accounts/permissions.py`) — staff
+  authority never implies a marketplace role.
+- Rate limits: DRF throttles reading `settings.API_THROTTLE_RATES` at request time; counters in a PostgreSQL
+  `DatabaseCache` table (`app_cache`, created by migration `core.0001`) so limits hold across processes without
+  Redis. Per-IP limits are generous for shared venue networks; login is also limited per phone number (hashed
+  key). `DJANGO_NUM_PROXIES` (default 0) prevents X-Forwarded-For spoofing.
+
+### Deployment mode and phone confirmation (AUTH-03, NFR-04)
+- `APP_DEPLOYMENT_MODE` = `live` | `demo` (development default `demo`, production default `live`). Demo
+  deployments flag new accounts `is_demo` and the UI shows a persistent demo banner (from `GET /config/`).
+- `PHONE_VERIFICATION_PROVIDER` = `demo` | `unconfigured`. `check_simulation_allowed()` raises
+  `ImproperlyConfigured` at settings load when `demo` is combined with `live` — production cannot start with
+  simulated authentication (subprocess-tested). The service re-checks at runtime.
+- **Provider boundary** (`apps/accounts/phone_verification.py`): the server generates the code, stores only an
+  HMAC-SHA256 digest (keyed by `SECRET_KEY`, bound to challenge id, purpose and phone), and calls
+  `PhoneCodeSender.send_code()`. `DemoPhoneCodeSender` sends nothing and allows the code to be returned once in a
+  labelled demo response; `UnconfiguredSmsSender` raises `phone_verification_unavailable` (no challenge stored,
+  nothing pretended). **To add a real SMS provider:** implement `send_code` (call the API with a timeout, return
+  its message id as `provider_reference`, raise `PhoneVerificationUnavailable` on failure), register it in
+  `get_phone_code_sender()` under a new setting value, and keep secrets in environment variables. Providers
+  that generate their own codes (verify-style APIs) would need a variant that delegates the check step too.
+- Status vs method: `User.phone_confirmed_at` (status) and `User.phone_confirmation_method` (`demo`/`sms`) are
+  separate fields with a DB constraint keeping them consistent. The UI labels a demo confirmation "Demo
+  confirmation (not real verification)".
+- `PhoneVerificationChallenge`: partial unique constraint = at most one open code per user and purpose; check
+  constraints bound attempts and expiry. Failed attempts are committed before the error is returned; issuing
+  and verifying lock rows (`select_for_update`) so limits cannot be raced. Policy: 10-minute expiry, 5 attempts,
+  60 s resend cooldown, 5 codes/hour.
+
+### Catalog (`apps/catalog`)
+- Models: `Trade` → `ServiceTag`; `City` → `Area` (`kind` sector/locality, optional approximate centre, left
+  empty until verified); `SpecialityQuestion` (three global questions whose prompts take `{trade}`; choices are
+  the trade's active service tags, `choice_source` says whether a question draws from all services or from the
+  "offered" answers). Consistency rules (offered ∩ not-offered = ∅; primary ⊆ offered) live in
+  `apps/catalog/speciality.py` and are returned to clients as `rules`.
+- Every entry: stable `code` (validated slug, unique), Urdu + English labels, `is_active`, `sort_order`;
+  foreign keys `PROTECT` (deactivate, don't delete). Icons are a controlled vocabulary shared with the frontend
+  (`icons.py` ↔ `catalogIcons.tsx`, checked by a frontend test).
+- `python manage.py seed_catalog [--dry-run]`: upserts by code, never deletes, leaves unrelated staff-created
+  records alone, preserves an existing record's `is_active`, touches no user/identity data. Seeds 3 trades,
+  23 services, 2 cities, 19 sample areas (11 Islamabad, 8 Rawalpindi), 3 questions. Areas are samples, not
+  coverage claims; coverage is not tied to a fixed sector list.
+- Admin: trades with inline services, services, cities, areas, questions (filters, search, inline
+  ordering/activation). Phone challenges are read-only in admin and never show the digest.
+
+### Frontend
+- `AuthProvider` boots with `GET /auth/csrf/`, `/config/`, `/auth/me/` in parallel; failure → error state with
+  retry (no infinite spinner). States: loading, error, anonymous (`sessionExpired` / `loggedOut`),
+  authenticated. Any later 401 → "session ended" → login page with `?expired=1` and `?next=`.
+- Guards: `RequireAuth role=…` (anonymous → login with `next`; wrong role → own home; logged out → landing) and
+  `GuestOnly` (users already signed in on arrival → home; users who sign in on the page are left to the form, so
+  signup → phone confirmation and login → `next` are not raced — both were real bugs found in browser testing).
+  `next` accepts only same-site paths.
+- **Language rule**: anonymous → device setting (`localStorage`); signup sends the language on screen; after
+  login or session restore the **account preference is applied**; switching while signed in updates the UI at
+  once and `PATCH`es the account (if that fails the device keeps the choice and the account value applies at
+  next login). `<html lang dir>` is set in a layout effect so text and direction change in the same frame.
+- API client: mutations send `X-CSRFToken` from the cookie; `csrf_failed` triggers one token refresh + retry.
+- Reusable UI (`src/components/ui`): `Button`/`ButtonLink` (48 px, icon + text, loading), `TextField`,
+  `PasswordField` (show/hide), `FieldErrors`, `IconTileGroup` (radio or multi-select semantics, selected state
+  shown by border + check icon + "Selected" text), `LanguageSwitch`, `StatusBadge`, `Alert`, `PageLoader`,
+  `AudioButton` (renders nothing without a source/handler; readable fallback on failure).
+- Server error codes and field codes map to `errors.*` / `fieldErrors.*` translation keys
+  (`src/i18n/errors.ts`); English is type-checked against Urdu for key parity.
