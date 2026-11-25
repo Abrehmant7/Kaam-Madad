@@ -10,6 +10,7 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 import { PhoneConfirmationPage } from "./pages/PhoneConfirmationPage";
 import { RouteErrorPage } from "./pages/RouteErrorPage";
 import { SignupPage } from "./pages/SignupPage";
+import { VoiceTestPage } from "./pages/VoiceTestPage";
 import { StartPage } from "./pages/StartPage";
 
 // Feature modules add their routes here (worker onboarding, requests, bookings…).
@@ -34,6 +35,7 @@ export const routes: RouteObject[] = [
         children: [
           { path: "account", element: <AccountHomePage /> },
           { path: "account/phone", element: <PhoneConfirmationPage /> },
+          { path: "voice-test", element: <VoiceTestPage /> },
         ],
       },
       { path: "worker", element: <RequireAuth role="worker"><WorkerHomePage /></RequireAuth> },

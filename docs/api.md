@@ -1,7 +1,7 @@
 # Kaam Madad — API Contracts
 
 All endpoints are under `/api/v1/`, return JSON, and are served from the same origin as the web app.
-Implemented through **M2**. Planned endpoint families for later modules are listed in
+Implemented through **M3**. Planned endpoint families for later modules are listed in
 [requirements.md §10](requirements.md#10-api-contracts-and-screen-inventory) and are **not** implemented.
 
 ## Conventions
@@ -134,3 +134,87 @@ Speciality questions (the three later worker questions, WK-02):
 ```
 
 Answers are validated server-side by `apps.catalog.speciality.validate_speciality_answers` (used by M4).
+
+## Voice and AI (M3)
+
+All endpoints require a signed-in active user and only touch that user's own records — another
+account's IDs return **404** (existence is not revealed). Mutations need CSRF like every other mutation.
+Provider failures use distinct codes:
+
+| Code | Status | Meaning | `details` |
+|---|---|---|---|
+| `ai_provider_not_configured` | 503 | No provider selected, key missing (`reason: missing_api_key`), or key rejected (`credentials_rejected`) | `capability`, `reason` |
+| `ai_provider_limit_reached` | 429 | The provider's usage/rate limit | `capability`, `retry_after_seconds` (if sent) |
+| `ai_provider_unavailable` | 502 | Timeout, network or provider error after bounded retries | `capability`, `reason` |
+| `ai_output_invalid` | 502 | Provider answered but the result failed schema validation (nothing stored) | `capability`, `reason` |
+
+`capability` is `speech_to_text`, `interpretation` or `text_to_speech`. `GET /config/` additionally returns
+`"ai": {"speech_to_text"|"interpretation"|"text_to_speech": {"provider", "available", "simulated"}}` and
+`"voice_limits": {"max_audio_bytes", "max_audio_seconds", "max_synthesis_chars"}` — never keys.
+
+Rate limits: `audio_upload_user` 60/hour, `ai_request_user` 120/hour (transcribe, interpret, synthesise), per user.
+
+### Private audio
+
+| Method & path | Request | Success | Errors |
+|---|---|---|---|
+| `POST /audio/clips/` | multipart: `file`, `purpose` (`worker_introduction` / `job_description`), `source` (`recording` / `upload`) | `201` clip | `413 audio_too_large` (> 10 MB), `415 audio_unsupported`, `400 audio_invalid`, `400 audio_too_long` (> 60 s), `400 audio_too_short` (< 0.3 s), `429` |
+| `GET /audio/clips/{id}/` | — | `200` clip | `404` |
+| `GET /audio/clips/{id}/content/` | — | `200` audio bytes, `Cache-Control: private, no-store` | `401`, `404` |
+
+Clip: `{"id", "purpose", "source", "mime_type", "size_bytes", "duration_seconds", "created_at", "content_url"}`.
+Format and duration are verified **from the file bytes on the server** before storage (client name/type
+ignored). Accepted: WAV (the in-app recorder: 16 kHz mono PCM), MP3, M4A/MP4 (AAC), AAC (ADTS), OGG
+(Opus — incl. WhatsApp voice notes — or Vorbis), FLAC. WebM is rejected (duration not verifiable server-side).
+
+### Transcription
+
+`POST /audio/transcribe/` `{"clip_id", "language": "ur" | "en" | "auto"}` → `200`:
+`{"id", "clip_id", "text", "language" ("ur"|"en"|"mixed"|"unknown"), "language_hint", "no_speech", "provider",
+"model", "simulated", "reused", "created_at"}`. `text` is the original transcript in the spoken language (Urdu
+script, English trade terms as spoken) and is never edited. The same clip + provider + model + hint returns
+the stored result (`reused: true`) without calling the provider again.
+
+### Interpretation drafts
+
+| Method & path | Request | Success | Errors |
+|---|---|---|---|
+| `POST /interpretations/` | `{"kind", "language", "transcription_id"}` **or** `{"kind", "language", "text"}` (≤ 4000 chars) | `201` interpretation | `400 transcription_or_text_required`, `400 no_speech`, `404`, provider codes |
+| `GET /interpretations/{id}/` | — | `200` | `404` |
+| `PATCH /interpretations/{id}/` | `{"fields": {...}}` — corrections only | `200` | `400` field codes `unexpected_field`, `unknown_trade`, `unknown_area`, `unknown_service`, `invalid`, `max_length`; `409 draft_already_confirmed` |
+| `POST /interpretations/{id}/confirm/` | — | `200` (`confirmed` set) | `400` `fields.<name>`: `required`, `offered_and_excluded_overlap`; `409 draft_already_confirmed` |
+
+Interpretation:
+
+```json
+{"id": "uuid", "kind": "worker_introduction", "language": "mixed",
+ "source": {"text": "<original transcript or typed text>", "transcription_id": "uuid|null"},
+ "draft": {"fields": {...}, "missing": ["name"], "uncertain": ["preferred_time_text"],
+           "unmatched_mentions": [{"phrase": "motor rewinding", "negated": true}], "heard": {"area": "<as said>"}},
+ "corrections": {"name": "..."},
+ "effective_fields": {"...draft fields overlaid with corrections..."},
+ "confirmed": null | {"fields": {...}, "confirmed_at": "ISO-8601"},
+ "provider": "gemini", "model": "gemini-3.8-flash", "simulated": false, "reused": false, "created_at": "..."}
+```
+
+Fields — **worker_introduction**: `name` (≤ 80), `trade` (trade code), `years_experience` (0–70, self-reported),
+`services_offered`, `services_not_offered` (service codes). Required to confirm: `name`, `trade`.
+**job_description**: `description` (faithful Urdu draft ≤ 1000), `trade`, `services`, `services_excluded`, `area`
+(area code), `preferred_time_text` (as said, not converted to a date), `budget_pkr` (customer's preference, optional).
+Required to confirm: `description`, `trade`, `area`, `preferred_time_text`.
+
+Guarantees: codes are always active catalog entries (anything else is left unset and reported as unmatched or
+uncertain); negated mentions are kept as negated ("not offered" / "not wanted"), never flipped; a service said both
+ways is removed from both and marked uncertain; a name that does not appear in the source text is dropped;
+`draft` and `source.text` never change — corrections live in `corrections`. Confirming stores the draft only: it
+does not publish a profile or create a job. Identical text (same kind, language, provider, model and catalog) reuses
+the previous provider result in a new record (`reused: true`).
+
+### Speech synthesis
+
+`POST /audio/synthesise/` `{"text" (≤ 1500), "language": "ur" | "en"}` → `201`
+`{"id", "language", "voice", "provider", "simulated", "mime_type", "size_bytes", "content_url", "reused"}`.
+`mime_type` is `audio/wav` (fixture, Azure, ElevenLabs `wav_*`) or `audio/mpeg` (ElevenLabs default `mp3_44100_128`);
+`provider` is `fixture`, `azure` or `elevenlabs`; for ElevenLabs `voice` is `<model>/<voice id>`.
+`GET /audio/syntheses/{id}/content/` → owner-only audio of that type, `private, no-store`. Cached per owner only (same text,
+language, provider and voice → `reused: true`); never in a shared cache.

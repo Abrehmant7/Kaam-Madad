@@ -10,6 +10,7 @@ export const PATHS = {
   worker: "/worker",
   customer: "/customer",
   catalog: "/catalog",
+  voiceTest: "/voice-test",
 } as const;
 
 /** The home screen for a signed-in user, chosen by role. */

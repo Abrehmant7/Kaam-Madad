@@ -32,9 +32,22 @@ export interface PhoneProviderStatus {
   simulated: boolean;
 }
 
+export interface AiProviderStatus {
+  provider: string;
+  available: boolean;
+  /** True for deterministic fixture results (demo deployments only). */
+  simulated: boolean;
+}
+
 export interface ClientConfig {
   deployment_mode: "live" | "demo";
   phone_verification: PhoneProviderStatus;
+  ai?: {
+    speech_to_text: AiProviderStatus;
+    interpretation: AiProviderStatus;
+    text_to_speech: AiProviderStatus;
+  };
+  voice_limits?: { max_audio_bytes: number; max_audio_seconds: number; max_synthesis_chars: number };
   languages: Language[];
   default_language: Language;
 }

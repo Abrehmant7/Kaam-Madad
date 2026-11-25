@@ -14,7 +14,7 @@ import { TextField } from "../components/ui/TextField";
 import { PhoneConfirmationBadge } from "../features/phone/PhoneConfirmationStatus";
 import { formatMinutesSeconds, useCountdown } from "../hooks/useCountdown";
 import { useI18n } from "../i18n/context";
-import { describeError, fieldErrorsOf } from "../i18n/errors";
+import { describeError, fieldErrorCodes, fieldErrorText, LocalMessage } from "../i18n/errors";
 
 type Load = { status: "loading" } | { status: "error"; error: unknown } | { status: "ready"; data: authApi.PhoneConfirmationState };
 
@@ -25,8 +25,9 @@ export function PhoneConfirmationPage() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [demoCode, setDemoCode] = useState<string | null>(null);
   const [code, setCode] = useState("");
-  const [codeErrors, setCodeErrors] = useState<string[]>([]);
-  const [message, setMessage] = useState<{ tone: "danger" | "success"; text: string } | null>(null);
+  const [codeErrorCodes, setCodeErrors] = useState<string[]>([]);
+  const codeErrors = codeErrorCodes.map((errorCode) => fieldErrorText(errorCode, t));
+  const [message, setMessage] = useState<{ tone: "danger" | "success"; content: unknown } | null>(null);
   const [busy, setBusy] = useState<"send" | "verify" | null>(null);
 
   const reload = useCallback(async (signal?: AbortSignal) => {
@@ -60,7 +61,7 @@ export function PhoneConfirmationPage() {
       setCode("");
       setLoad({ status: "ready", data: result });
     } catch (error) {
-      setMessage({ tone: "danger", text: describeError(error, t) });
+      setMessage({ tone: "danger", content: error });
     } finally {
       setBusy(null);
     }
@@ -70,7 +71,7 @@ export function PhoneConfirmationPage() {
     event.preventDefault();
     setMessage(null);
     if (!code.trim()) {
-      setCodeErrors([t("fieldErrors.required")]);
+      setCodeErrors(["required"]);
       return;
     }
     setBusy("verify");
@@ -78,11 +79,11 @@ export function PhoneConfirmationPage() {
       const session = await authApi.verifyPhoneCode(code);
       if (session.user) setUser(session.user);
       setDemoCode(null);
-      setMessage({ tone: "success", text: t("phone.confirmedSuccess") });
+      setMessage({ tone: "success", content: new LocalMessage("phone.confirmedSuccess") });
       await reload();
     } catch (error) {
-      setCodeErrors(fieldErrorsOf(error, t).code ?? []);
-      setMessage({ tone: "danger", text: describeError(error, t) });
+      setCodeErrors(fieldErrorCodes(error).code ?? []);
+      setMessage({ tone: "danger", content: error });
       // Attempts/expiry changed on the server: refresh the displayed state.
       if (error instanceof ApiError && error.code !== "validation_error") {
         const fresh = await authApi.fetchPhoneConfirmation().catch(() => null);
@@ -121,7 +122,7 @@ export function PhoneConfirmationPage() {
           </div>
           <p className="text-sm text-muted">{t("phone.boundary")}</p>
 
-          {message && <Alert tone={message.tone}>{message.text}</Alert>}
+          {message && <Alert tone={message.tone}>{describeError(message.content, t)}</Alert>}
 
           {!confirmed && provider && !provider.available && <Alert tone="info">{t("phone.unavailable")}</Alert>}
 

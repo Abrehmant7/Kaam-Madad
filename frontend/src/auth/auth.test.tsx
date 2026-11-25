@@ -172,6 +172,21 @@ describe("login and signup", () => {
     expect(router.state.location.pathname).toBe("/worker");
   });
 
+  it("re-translates shown errors after a language switch", async () => {
+    mockApi({
+      ...bootHandlers(),
+      "POST /api/v1/auth/login/": jsonResponse(errorEnvelope("invalid_credentials", "r9"), 400),
+    });
+    renderApp("/login", "en");
+    await userEvent.type(await screen.findByLabelText(en["signup.phoneLabel"]), "03001234567");
+    await userEvent.type(screen.getByLabelText(en["signup.passwordLabel"]), "Wrong-Pass-1");
+    await userEvent.click(screen.getByRole("button", { name: en["login.submit"] }));
+    expect(await screen.findByText(en["errors.invalid_credentials"])).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: en["nav.changeLanguage"].replace("{language}", "اردو") }));
+    expect(await screen.findByText(ur["errors.invalid_credentials"])).toBeInTheDocument();
+    expect(screen.queryByText(en["errors.invalid_credentials"])).not.toBeInTheDocument();
+  });
+
   it("validates locally before calling the server", async () => {
     const calls = mockApi(bootHandlers());
     renderApp("/signup", "en");

@@ -72,6 +72,10 @@ export const fetchTrades = (signal?: AbortSignal) =>
 export const fetchServiceTags = (trade: string, signal?: AbortSignal) =>
   apiRequest<Page<ServiceTag>>(`/catalog/service-tags/${query({ trade, page_size: 200 })}`, { signal });
 
+/** Every active service (≤ 200), e.g. for the draft editor. */
+export const fetchAllServiceTags = (signal?: AbortSignal) =>
+  apiRequest<Page<ServiceTag>>(`/catalog/service-tags/${query({ page_size: 200 })}`, { signal });
+
 export const fetchAreas = (signal?: AbortSignal) =>
   apiRequest<Page<Area>>(`/catalog/areas/${query({ page_size: 200 })}`, { signal });
 

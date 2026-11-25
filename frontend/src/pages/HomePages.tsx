@@ -1,4 +1,4 @@
-import { HardHat, House, List, Phone, ShieldCheck } from "lucide-react";
+import { HardHat, House, List, Mic, Phone, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -63,10 +63,16 @@ function RoleHome({ title, badge, nextKeys }: { title: string; badge: ReactNode;
         </ul>
       </section>
 
-      <Link to={PATHS.catalog} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
-        <List className="size-5" aria-hidden />
-        {t("landing.catalogLink")}
-      </Link>
+      <div className="flex flex-col gap-1">
+        <Link to={PATHS.voiceTest} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
+          <Mic className="size-5" aria-hidden />
+          {t("home.voiceTest")}
+        </Link>
+        <Link to={PATHS.catalog} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
+          <List className="size-5" aria-hidden />
+          {t("landing.catalogLink")}
+        </Link>
+      </div>
     </div>
   );
 }

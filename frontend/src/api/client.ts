@@ -122,15 +122,19 @@ export type HttpMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
 export interface RequestOptions {
   method?: HttpMethod;
+  /** JSON-serialisable value, or FormData for file uploads (multipart). */
   body?: unknown;
   signal?: AbortSignal;
   timeoutMs?: number;
   /** Do not report a 401 as "session expired" (e.g. login itself). */
   skipUnauthorizedHandler?: boolean;
+  /** "blob" for binary responses such as private audio. */
+  responseType?: "json" | "blob";
 }
 
 async function send<T>(path: string, options: RequestOptions): Promise<T> {
-  const { method = "GET", body, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
+  const { method = "GET", body, signal, timeoutMs = DEFAULT_TIMEOUT_MS, responseType = "json" } = options;
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
 
   const controller = new AbortController();
   let timedOut = false;
@@ -142,12 +146,13 @@ async function send<T>(path: string, options: RequestOptions): Promise<T> {
   if (signal?.aborted) controller.abort();
   signal?.addEventListener("abort", forwardAbort, { once: true });
 
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: responseType === "blob" ? "*/*" : "application/json" };
   if (method !== "GET") {
     const token = csrfToken();
     if (token) headers["X-CSRFToken"] = token;
   }
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // FormData sets its own multipart Content-Type (with boundary).
+  if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
 
   try {
     let response: Response;
@@ -156,7 +161,7 @@ async function send<T>(path: string, options: RequestOptions): Promise<T> {
         method,
         credentials: "same-origin",
         headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
         signal: controller.signal,
       });
     } catch (error) {
@@ -166,6 +171,11 @@ async function send<T>(path: string, options: RequestOptions): Promise<T> {
     }
 
     const headerRequestId = response.headers.get("X-Request-ID");
+    if (response.ok && responseType === "blob") {
+      const blob = await response.blob();
+      if (timedOut) throw new ConnectionError("timeout");
+      return blob as T;
+    }
     const parsed = await readJson(response);
     if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
     if (timedOut) throw new ConnectionError("timeout");

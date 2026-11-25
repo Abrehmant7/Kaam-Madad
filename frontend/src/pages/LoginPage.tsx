@@ -8,7 +8,7 @@ import { Alert } from "../components/ui/Alert";
 import { Button } from "../components/ui/Button";
 import { PasswordField, TextField } from "../components/ui/TextField";
 import { useI18n } from "../i18n/context";
-import { describeError, fieldErrorsOf } from "../i18n/errors";
+import { describeError, fieldErrorCodes, translateFieldCodes } from "../i18n/errors";
 
 export function LoginPage() {
   const { t } = useI18n();
@@ -19,17 +19,19 @@ export function LoginPage() {
 
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
-  const [formError, setFormError] = useState<string | null>(null);
+  // Codes and error objects, translated at render so they follow a language switch.
+  const [errorCodes, setErrorCodes] = useState<Record<string, string[]>>({});
+  const [formError, setFormError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
+  const errors = translateFieldCodes(errorCodes, t);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setFormError(null);
     const local: Record<string, string[]> = {};
-    if (!phone.trim()) local.phone_number = [t("fieldErrors.required")];
-    if (!password) local.password = [t("fieldErrors.required")];
-    setErrors(local);
+    if (!phone.trim()) local.phone_number = ["required"];
+    if (!password) local.password = ["required"];
+    setErrorCodes(local);
     if (Object.keys(local).length > 0) return;
 
     setSubmitting(true);
@@ -38,8 +40,8 @@ export function LoginPage() {
       const next = safeNextPath(params.get("next"));
       navigate(next ?? homePathFor(user), { replace: true });
     } catch (error) {
-      setErrors(fieldErrorsOf(error, t));
-      setFormError(describeError(error, t));
+      setErrorCodes(fieldErrorCodes(error));
+      setFormError(error);
     } finally {
       setSubmitting(false);
     }
@@ -50,7 +52,7 @@ export function LoginPage() {
       <h1 className="text-3xl font-bold text-primary">{t("login.title")}</h1>
 
       {sessionExpired && !formError && <Alert tone="warning">{t("auth.sessionExpired")}</Alert>}
-      {formError && <Alert tone="danger">{formError}</Alert>}
+      {formError !== null && <Alert tone="danger">{describeError(formError, t)}</Alert>}
 
       <TextField
         label={t("signup.phoneLabel")}

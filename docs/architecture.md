@@ -31,6 +31,8 @@ and marks decisions intentionally left to later modules.
 | Styling | Tailwind CSS (+ @tailwindcss/vite) | 4.3.5 |
 | Urdu font | @fontsource/noto-nastaliq-urdu (bundled, self-hosted) | 5.3.0 |
 | Icons (M2) | lucide-react (ISC licence, tree-shaken) | 1.80.0 |
+| Provider HTTP (M3) | httpx | 0.28.1 |
+| Audio parsing (M3) | mutagen (pure Python) | 1.48.1 |
 | Frontend tests | Vitest, jsdom, Testing Library (react, dom, jest-dom, user-event) | 5.1.1, 31.0.1, 16.3.3 / 10.4.2 / 8.0.0 / 14.6.13 |
 
 Exact backend pins live in `backend/requirements.txt` (direct ranges in `backend/requirements.in`); exact
@@ -217,10 +219,10 @@ serves it**. M3 adds authorised download views (MEDIA-01).
 |---|---|
 | Real SMS/OTP provider integration (boundary exists; see §8) | Before a real pilot |
 | Password policy suited to low-literacy users (Django defaults still apply) | Revisit with user testing |
-| Startup check for simulated speech/OCR/identity providers (extends the M2 phone check) | M3/M4 |
 | Restricted account state beyond `is_active`, user blocking | M10 |
 | Verified area centre coordinates (needed for approximate distance) | M6 |
-| Provider adapters, private media upload/download | M3 |
+| CNIC OCR implementation, verification cases, staff review queue (boundaries exist; see §9) | M4 |
+| Staff access to private audio with audit logging (no admin access to audio yet) | M10 |
 | Content-Security-Policy (needs browser verification of admin + SPA), WSGI server, HTTPS deployment, HSTS subdomains/preload | M11 |
 
 ## 8. Module M2 — accounts, language, catalog
@@ -303,3 +305,114 @@ API contracts: [api.md](api.md).
   `AudioButton` (renders nothing without a source/handler; readable fallback on failure).
 - Server error codes and field codes map to `errors.*` / `fieldErrors.*` translation keys
   (`src/i18n/errors.ts`); English is type-checked against Urdu for key parity.
+
+## 9. Module M3 — audio and AI adapters
+
+API contracts: [api.md § Voice and AI](api.md#voice-and-ai-m3).
+
+### Provider choices (checked against current documentation, 25 Nov 2026)
+
+| Capability | Real provider | Model / voice | Why |
+|---|---|---|---|
+| Speech-to-text | **Google Gemini API**: audio understanding via the Interactions API | `gemini-3.8-flash` (stable; `GEMINI_STT_MODEL`) | Accepts WAV/MP3/M4A/AAC/OGG/Opus/FLAC/WebM inline (≤ 20 MB request); one key also covers interpretation; free AI Studio tier for live checks. Prompted for a verbatim transcript in the spoken language: Urdu script, English trade terms kept as spoken, negations kept. |
+| Interpretation | **Google Gemini API**: structured output (`response_format` with a JSON schema) | `gemini-3.8-flash` (`GEMINI_INTERPRETATION_MODEL`) | Reuses the speech-to-text provider and key ("reuse where it meets the requirements"). Output is re-validated on the server regardless. |
+| Text-to-speech | **Azure AI Speech** neural TTS REST | `ur-PK-UzmaNeural` (Urdu), `en-IN-NeerjaNeural` (English), `riff-24khz-16bit-mono-pcm` | The Gemini API speech-generation language table does **not** list Urdu (only Hindi), so Gemini TTS does not meet the requirement. Azure has ur-PK neural voices. |
+| Text-to-speech (alternative, added 26 Nov 2026) | **ElevenLabs** text-to-speech REST | `eleven_v3` (`ELEVENLABS_MODEL_ID`), one voice `ELEVENLABS_VOICE_ID` for Urdu and English, `mp3_44100_128` | Selected with `TEXT_TO_SPEECH_PROVIDER=elevenlabs`. ElevenLabs lists "Urdu (ur)" for Eleven v3; Multilingual v2 and Flash v2.5 do not list Urdu, so those models are not suitable. The docs now call v3 the "previous generation" and recommend testing Eleven v4. |
+
+Documentation facts relied on (Gemini docs at aistudio.google.com/docs, redirected from ai.google.dev): endpoint
+`POST https://generativelanguage.googleapis.com/v1beta/interactions`, header `x-goog-api-key`, example header
+`Api-Revision: 2026-05-20`; input parts `{"type":"text"}` and `{"type":"audio","data":<base64>,"mime_type":...}`;
+`system_instruction`; `response_format: {"type":"text","mime_type":"application/json","schema":{...}}`;
+`generation_config.max_output_tokens`; `store: false` disables server-side storage of the interaction; Gemini 4
+and 3.6+ ignore temperature (so none is sent); errors 401 `authentication`, 429 `rate_limit_exceeded` /
+`quota_exceeded`, 503 `service_unavailable`. **Caveat:** the docs show the SDK field `output_text` and the
+`steps[]` / `type: "model_output"` / `content[]` structure but no raw JSON response sample. The adapter accepts
+both forms and otherwise fails closed (`ai_output_invalid`). This is the first thing to confirm in a live check.
+Azure (learn.microsoft.com): `https://{region}.tts.speech.microsoft.com/cognitiveservices/v1`,
+`Ocp-Apim-Subscription-Key`, `Content-Type: application/ssml+xml`, `X-Microsoft-OutputFormat`, `User-Agent`;
+401/429/502/503 documented; audio longer than 10 minutes is truncated.
+ElevenLabs (elevenlabs.io/docs, 26 Nov 2026): `POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}` with
+header `xi-api-key`, query `output_format` (default `mp3_44100_128`; 44.1 kHz PCM/WAV needs a Pro plan), JSON
+`{"text", "model_id", "language_code"}` (`language_code` is ISO 639-1 and is ignored if the model does not support
+it); `eleven_v3` allows 5,000 characters per request (we cap at 1,500); `enable_logging=false` (zero retention) is
+enterprise-only, so by default generated speech stays in the account history. Errors arrive as
+`{"detail": {"status": <code>}}`: `quota_exceeded` → `ai_provider_limit_reached` (it is not a credentials problem
+even though it can come with 401), `too_many_concurrent_requests` → limit, `system_busy` → unavailable,
+`invalid_api_key` / `voice_not_found` → not configured. The adapter accepts only MP3 or WAV output and checks the
+magic bytes; the file is stored as `.mp3` or `.wav` and served with its real type.
+
+### Structure
+
+- `apps/providers/`: capability adapters, independent of Django models.
+  `speech_to_text.py`, `interpretation.py`, `text_to_speech.py` (each with real, `fixture` and `unconfigured`
+  implementations), `gemini.py` (shared client), `http.py` (timeouts, retries, error mapping), `errors.py`
+  (taxonomy), `registry.py` (selection and `/config/` status), `identity.py` (OCR and identity-verification
+  boundaries only).
+- `apps/voice/`: private audio and drafts. Models `AudioClip`, `Transcription`, `Interpretation`,
+  `SpeechSynthesis`; `audio.py` (server validation), `drafts.py` (schemas, catalog mapping, negation,
+  corrections, confirmation), `services.py` (orchestration and reuse), `views.py`, `urls.py`.
+- Settings: `SPEECH_TO_TEXT_PROVIDER`, `INTERPRETATION_PROVIDER`, `TEXT_TO_SPEECH_PROVIDER` (development default
+  `fixture`, production default `unconfigured`). `check_simulation_allowed()` refuses `fixture` unless
+  `APP_DEPLOYMENT_MODE=demo` (at startup, subprocess-tested), and the registry treats fixture as unconfigured in
+  live mode (at runtime). Keys live only in environment variables; `/config/` exposes availability, never keys.
+
+### Reliability (AI-03, NFR-02)
+
+- Per-attempt timeout `AI_PROVIDER_TIMEOUT_SECONDS` (20 s) and `AI_PROVIDER_MAX_RETRIES` (1) with backoff for
+  timeouts, network errors and 500/502/503/504. 429 is never retried (it is a usage limit); 401/403 mean "not
+  configured". The frontend allows 60 s for AI calls.
+- Reuse instead of reprocessing: transcription per clip + provider + model + hint; interpretation per owner +
+  text + kind + language + provider + model + catalog fingerprint; synthesis per owner + text + language + voice.
+- Limits in one place (`VOICE_LIMITS`): 10 MB and 60 s (+0.25 s tolerance) per clip, at least 0.3 s, 4000
+  characters to interpret, 1500 to synthesise.
+
+### Safety of AI output (AI-02, AI-04, DATA-02)
+
+- Prompts declare the transcript untrusted data and forbid following instructions inside it; the transcript is
+  wrapped in markers. Whatever the model returns, only the draft fields defined in `drafts.FIELD_TYPES` can be
+  produced, and nothing in M3 publishes a profile, creates a job, or changes permissions or identity status.
+- `validate_raw` enforces types (wrong types give `ai_output_invalid`, and nothing is stored). `build_draft`
+  keeps only active catalog codes, separates negated mentions, removes services said both ways, drops a name that
+  is not in the source text, and computes `missing` and `uncertain` deterministically.
+- Stored separately: the original transcript (`Transcription.text`, `Interpretation.source_text`), the model
+  draft (`draft`), the user's corrections (`corrections`) and the confirmed result (`confirmed_fields`).
+
+### Private media (MEDIA-01, SEC-02, SEC-04)
+
+- Files go to `MEDIA_ROOT = PRIVATE_MEDIA_ROOT` with random names (`audio/YYYY/MM/<uuid>.wav`): no user IDs and
+  no client file names. No URL route serves the folder; every download checks ownership in the view and returns
+  `private, no-store`. The frontend fetches audio as a blob (this works with the session cookie and avoids
+  Safari range-request problems) and plays it from an object URL.
+- Logs carry the provider name, status and reason only, never audio, transcripts or synthesis text (tested).
+- No Django Admin access to audio or transcripts in M3: staff access to evidence needs audit logging (M10).
+
+### Frontend
+
+- `useRecorder` records with `getUserMedia` and Web Audio and encodes **16 kHz mono 16-bit WAV in the browser**
+  (about 1.9 MB per 60 s), so every browser produces the same verifiable format. Permission is requested only
+  when the user presses "Record", and recording stops automatically at 60 s. Recording needs a secure context
+  (HTTPS or localhost): phones opening the dev server over plain http on the LAN get the upload and typing
+  fallbacks instead.
+- Components: `VoiceCapture` (record, stop, replay, upload, client-side size and duration checks),
+  `DraftEditor` (read-only transcript; every field editable; "Missing" and "Please check" badges; unmatched
+  mentions with their negation; overlap warning), `ReadAloud` (text always visible; failure shows the reason
+  and a retry), `SimulatedBadge`, `TextArea`. The `/voice-test` page (signed-in users) runs the full flow for
+  both kinds.
+- Errors are stored as error objects or codes and translated at render, so messages follow a language switch.
+  This also fixed the same issue on the M2 login, signup and phone pages.
+
+### M4 handoff: CNIC OCR and identity verification (ID-01 to ID-04)
+
+`apps/providers/identity.py` defines `CnicOcrProvider.extract()` and `IdentityVerificationProvider.verify()` with
+only `Unconfigured*` implementations. M3 exposes no CNIC endpoint and accepts no CNIC upload. For M4:
+
+1. Store CNIC images like audio: private storage, random names, owner/staff-only downloads, never message
+   attachments or public assets, never logged. Validate JPEG/PNG/WebP content and size on the server.
+2. Implement an OCR provider behind `CnicOcrProvider` (a vision-capable Gemini model is a candidate and would reuse
+   the same adapter pattern and `ai_*` error codes). OCR output is a draft: the worker confirms or corrects it;
+   deterministic format checks (13-digit CNIC, expiry date) run in code; OCR success never changes status.
+3. Identity verification: a `VerificationCase` model with status (draft/pending, needs correction, provider
+   verified, manually reviewed, demo approved, rejected/expired/suspended), method, reviewer, reason and consent.
+   Real NADRA verification only with authorised access and a contract; keep `UnconfiguredIdentityVerification`
+   until then. Manual staff review and demo approval are separately labelled methods; nothing is ever labelled
+   "NADRA verified" without the real provider.

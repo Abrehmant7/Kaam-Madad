@@ -19,7 +19,7 @@ export function AppShell() {
   const { t } = useI18n();
   const { state, config, user, logout, retry } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [logoutError, setLogoutError] = useState<unknown>(null);
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -29,7 +29,7 @@ export function AppShell() {
       // public pages (e.g. the catalog) simply stay where they are.
       await logout();
     } catch (error) {
-      setLogoutError(`${t("auth.logoutFailed")} ${describeError(error, t)}`);
+      setLogoutError(error);
     } finally {
       setLoggingOut(false);
     }
@@ -78,7 +78,7 @@ export function AppShell() {
       )}
 
       <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-lg flex-1 space-y-4 px-4 py-6 outline-none">
-        {logoutError && <Alert tone="danger">{logoutError}</Alert>}
+        {logoutError !== null && <Alert tone="danger" title={t("auth.logoutFailed")}>{describeError(logoutError, t)}</Alert>}
         {state.status === "error" && (
           <Alert tone="warning" title={t("auth.checkFailed")}>
             <p>{describeError(state.error, t)}</p>

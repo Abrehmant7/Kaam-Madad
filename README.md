@@ -10,10 +10,10 @@ using Urdu text, spoken instructions, recognisable icons and guided choices.
 
 Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 
-> **Status: Modules M1 (Foundation) and M2 (Accounts, language, catalog) complete.** Workers and customers
-> can sign up, log in, confirm their phone through a clearly labelled **demo** flow, switch Urdu/English, and
-> see a minimal role home. The trade/service/area catalog is in the database. Worker onboarding, job
-> requests, recommendations, chat, quotations and bookings are **not** implemented yet.
+> **Status: Modules M1–M3 complete** (foundation; accounts, language, catalog; audio and AI adapters). Workers
+> and customers can sign up, log in, confirm their phone through a clearly labelled **demo** flow, switch
+> Urdu/English, and try the **voice test** (record → transcribe → correct → confirm → read aloud). Worker
+> onboarding, job requests, recommendations, chat, quotations and bookings are **not** implemented yet.
 > See [docs/progress.md](docs/progress.md).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
@@ -101,6 +101,7 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 python manage.py migrate              # also creates the rate-limit cache table
 python manage.py seed_catalog         # trades, services, sample areas, speciality questions (safe to re-run)
+python manage.py check_ai_providers   # optional: shows which AI/audio providers are active
 python manage.py createsuperuser      # optional staff login: phone e.g. 03001234567 (no spaces), then a password
 python manage.py runserver 127.0.0.1:8000
 ```
@@ -113,6 +114,7 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 python manage.py migrate              # also creates the rate-limit cache table
 python manage.py seed_catalog         # trades, services, sample areas, speciality questions (safe to re-run)
+python manage.py check_ai_providers   # optional: shows which AI/audio providers are active
 python manage.py createsuperuser      # optional staff login: phone e.g. 03001234567 (no spaces), then a password
 python manage.py runserver 127.0.0.1:8000
 ```
@@ -178,10 +180,87 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 |---|---|
 | SMS / OTP delivery | **Not integrated.** Demo mode simulates codes (no SMS). With `PHONE_VERIFICATION_PROVIDER=unconfigured` the app honestly says SMS confirmation is unavailable. Live mode refuses to start with the demo provider. |
 | NADRA / identity verification, CNIC OCR | Not implemented (M4; NADRA only with authorised access) |
-| Speech-to-text, interpretation, text-to-speech | Not implemented (M3). The audio control exists but shows nothing without real audio. |
+| Speech-to-text, interpretation, text-to-speech | **Implemented** (M3): Gemini (speech-to-text, interpretation); Azure AI Speech or ElevenLabs `eleven_v3` (Urdu read-aloud, selectable). Need keys in `.env`; without them development uses labelled fixtures and production reports "not configured". Not yet verified with live keys — see [Live check](#live-check-with-real-providers). |
 | Recommendations, chat, quotations, bookings, reviews, reports | Not implemented (M6–M10) |
 
-## 6. Checks and tests
+## 6. Voice and AI (M3)
+
+Open **http://localhost:5173/voice-test** while signed in (link "Voice test (preview)" on both home pages).
+Flow: choose *Worker introduction* or *Job description* and the spoken language → **Record** (or **Upload a
+voice file**) → replay → **Write it down** → review the original transcript and correct the extracted fields →
+**Confirm** → **Read aloud**. **Type instead** skips recording. Nothing is published from this page.
+
+- **Recording** uses the browser microphone (permission is asked only when you press Record), stops at
+  60 seconds, and produces 16 kHz mono WAV. It needs `https://` or `localhost`; a phone opening the dev server
+  as `http://<LAN-IP>:5173` cannot record (browser rule), but can upload a file or type.
+- **Uploads**: WAV, MP3, M4A (AAC), AAC, OGG (Opus/Vorbis, e.g. WhatsApp voice notes), FLAC; at most 60 s and
+  10 MB. The server checks the actual file content and duration. WebM is not accepted.
+- **Local development uses fixtures**: transcripts, drafts and speech are deterministic *simulated* results
+  labelled "Simulated result (not real AI)". The fixture transcript is a fixed fictional sample (it does not
+  listen to your audio); read-aloud plays a test tone, not speech.
+
+### Live check with real providers
+
+1. Get a **Gemini API key** at https://aistudio.google.com/apikey and an **Azure AI Speech** resource
+   (key + region, e.g. `centralindia`) from the Azure portal.
+2. In `.env` set:
+   ```
+   SPEECH_TO_TEXT_PROVIDER=gemini
+   INTERPRETATION_PROVIDER=gemini
+   TEXT_TO_SPEECH_PROVIDER=azure
+   GEMINI_API_KEY=<your key>
+   AZURE_SPEECH_KEY=<your key>
+   AZURE_SPEECH_REGION=<your region>
+   ```
+3. Record a **fictional** sample (no real names, CNIC or addresses), e.g. in Urdu:
+   *"میرا نام احمد ہے۔ میں الیکٹریشن ہوں۔ میں پنکھے لگاتا ہوں لیکن motor rewinding نہیں کرتا۔"*
+   Save it as WAV or M4A (≤ 60 s).
+4. From `backend/` (venv active): `python manage.py check_ai_providers --audio path\to\sample.wav --language ur`.
+   Each step prints `[OK]` with the result or `[FAIL]` with `ai_provider_not_configured`,
+   `ai_provider_limit_reached`, `ai_provider_unavailable` or `ai_output_invalid`. No keys are printed.
+5. Expected: the transcript keeps *motor rewinding* and *نہیں*; the draft offers fan installation and lists
+   "motor rewinding" as unmatched and **negated**; text-to-speech returns WAV from `ur-PK-UzmaNeural`.
+6. Restart `runserver` and repeat the flow at `/voice-test`; `GET /api/v1/config/` should show
+   `"simulated": false, "available": true` for all three. If interpretation reports `ai_output_invalid`
+   (`no_text_output`), the Gemini response shape differs from the documented forms — see
+   [docs/architecture.md §9](docs/architecture.md#9-module-m3--audio-and-ai-adapters).
+
+### Read-aloud with ElevenLabs (`eleven_v3`)
+
+Read-aloud can use ElevenLabs instead of Azure. Speech-to-text and interpretation are not affected: they keep
+whatever `SPEECH_TO_TEXT_PROVIDER` / `INTERPRETATION_PROVIDER` you set (Gemini or the fixtures).
+
+1. In ElevenLabs, create an API key (Developers → API keys, with *Text to Speech* access) and copy a **voice ID**
+   from *My Voices* (add a voice from the Voice Library first if the list is empty). `eleven_v3` reads Urdu
+   and English with the same voice.
+2. In `.env` set:
+   ```
+   TEXT_TO_SPEECH_PROVIDER=elevenlabs
+   ELEVENLABS_API_KEY=<your key>
+   ELEVENLABS_VOICE_ID=<voice id>
+   ```
+   Optional: `ELEVENLABS_MODEL_ID` (default `eleven_v3`), `ELEVENLABS_OUTPUT_FORMAT` (default `mp3_44100_128`;
+   `mp3_*` or `wav_*` only), `ELEVENLABS_ZERO_RETENTION=true` (enterprise accounts only).
+3. Check it from `backend/` (venv active) with a **fictional** sentence and listen to the file:
+   ```
+   python manage.py check_ai_providers --only text_to_speech --save-speech speech.mp3
+   python manage.py check_ai_providers --only text_to_speech --speak "کل شام دو پنکھے لگانے ہیں۔ AC کی service نہیں چاہیے۔" --save-speech speech.mp3
+   ```
+   Expected: `[OK] text_to_speech: elevenlabs voice=eleven_v3/<voice id> simulated=False format=audio/mpeg …`
+   and a playable `speech.mp3`. `[FAIL]` lines show the reason: `missing_api_key`, `missing_voice_id`,
+   `credentials_rejected`, `voice_not_found` (not configured), `quota_exceeded` or
+   `too_many_concurrent_requests` (usage limit), `system_busy` or `http_<status>` (provider failure).
+4. Restart `runserver`, open `/voice-test`, type or record a fictional sentence, **Confirm**, then **Read aloud**.
+   The page does not show the "simulated" label, and `GET /api/v1/config/` shows
+   `"text_to_speech": {"provider": "elevenlabs", "available": true, "simulated": false}`.
+
+Privacy note: ElevenLabs keeps generated speech in the account's history unless zero-retention mode is used
+(enterprise only). Only confirmed draft text is sent, never audio or transcripts, but use fictional text for tests.
+
+Fixture results are refused in a live deployment: production settings with `APP_DEPLOYMENT_MODE=live` and any
+`*_PROVIDER=fixture` fail at startup.
+
+## 7. Checks and tests
 
 ```bash
 # Backend (from backend/, venv active) — runs against a real PostgreSQL test database
@@ -202,7 +281,7 @@ curl http://localhost:5173/api/v1/health/live/    # {"status":"ok"}
 curl http://localhost:5173/api/v1/health/ready/   # {"status":"ok","checks":{"database":"ok"}} or 503
 ```
 
-## 7. Production-like local run (same origin)
+## 8. Production-like local run (same origin)
 
 Builds the frontend and lets Django serve everything on one port, with production settings
 (HTTPS redirect disabled only because this local test uses plain HTTP):
@@ -237,7 +316,7 @@ one.
 - **Libraries**: listed with versions in [docs/architecture.md](docs/architecture.md#1-stack-resolved-versions-m1),
   `backend/requirements.txt` and `frontend/package-lock.json`. Icons: lucide-react (ISC). Urdu font: Noto Nastaliq Urdu (SIL Open Font
   License) via `@fontsource/noto-nastaliq-urdu`, self-hosted.
-- **External services / AI providers**: none yet (M2 phone confirmation is a labelled simulation). Speech, interpretation, OCR, TTS, OTP and identity
+- **External services / AI providers**: Google Gemini API (speech-to-text, interpretation) and Azure AI Speech or ElevenLabs (text-to-speech), used only when keys are configured; M2 phone confirmation is a labelled simulation. OCR, OTP and identity
   providers arrive in later modules and will be documented with their exact modes.
 - **AI coding tools**: this codebase is being written with AI coding assistance (Claude Code, Anthropic).
 - **Earlier prototype**: the earlier Roshan Rozgaar prototype (the project's former name) served only as

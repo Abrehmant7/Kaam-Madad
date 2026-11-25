@@ -10,7 +10,7 @@ import { Button } from "../components/ui/Button";
 import { IconTileGroup } from "../components/ui/IconTile";
 import { PasswordField, TextField } from "../components/ui/TextField";
 import { useI18n } from "../i18n/context";
-import { describeError, fieldErrorsOf } from "../i18n/errors";
+import { describeError, fieldErrorCodes, LocalMessage, translateFieldCodes } from "../i18n/errors";
 import { LANGUAGE_META } from "../i18n/types";
 import { isRole, roleOptions } from "./roleOptions";
 
@@ -27,19 +27,20 @@ export function SignupPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
-  const [errors, setErrors] = useState<Errors>({});
-  const [formError, setFormError] = useState<string | null>(null);
+  // Codes and error objects, translated at render so they follow a language switch.
+  const [errorCodes, setErrorCodes] = useState<Errors>({});
+  const [formError, setFormError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
+  const errors = translateFieldCodes(errorCodes, t);
 
   function validateLocally(): Errors {
     // Supplementary only; the server validates everything again.
-    const required = t("fieldErrors.required");
     const result: Errors = {};
-    if (role.length === 0) result.role = [t("fieldErrors.invalid_choice")];
-    if (!phone.trim()) result.phone_number = [required];
-    if (!password) result.password = [required];
-    if (!passwordConfirm) result.password_confirm = [required];
-    else if (password && password !== passwordConfirm) result.password_confirm = [t("fieldErrors.password_mismatch")];
+    if (role.length === 0) result.role = ["invalid_choice"];
+    if (!phone.trim()) result.phone_number = ["required"];
+    if (!password) result.password = ["required"];
+    if (!passwordConfirm) result.password_confirm = ["required"];
+    else if (password && password !== passwordConfirm) result.password_confirm = ["password_mismatch"];
     return result;
   }
 
@@ -47,9 +48,9 @@ export function SignupPage() {
     event.preventDefault();
     setFormError(null);
     const local = validateLocally();
-    setErrors(local);
+    setErrorCodes(local);
     if (Object.keys(local).length > 0 || !role[0]) {
-      setFormError(t("errors.validation_error"));
+      setFormError(new LocalMessage("errors.validation_error"));
       return;
     }
     setSubmitting(true);
@@ -63,8 +64,8 @@ export function SignupPage() {
       });
       navigate(`${PATHS.phone}?welcome=1`, { replace: true });
     } catch (error) {
-      setErrors(fieldErrorsOf(error, t));
-      setFormError(describeError(error, t));
+      setErrorCodes(fieldErrorCodes(error));
+      setFormError(error);
     } finally {
       setSubmitting(false);
     }
@@ -74,7 +75,7 @@ export function SignupPage() {
     <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-5">
       <h1 className="text-3xl font-bold text-primary">{t("signup.title")}</h1>
 
-      {formError && <Alert tone="danger">{formError}</Alert>}
+      {formError !== null && <Alert tone="danger">{describeError(formError, t)}</Alert>}
 
       <IconTileGroup
         label={t("signup.roleLabel")}

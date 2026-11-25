@@ -43,7 +43,8 @@ export function mockApi(handlers: Record<string, Handler>): RecordedCall[] {
       const method = (init.method ?? "GET").toUpperCase();
       const path = url.split("?")[0] ?? url;
       const headers = (init.headers ?? {}) as Record<string, string>;
-      calls.push({ method, path, headers, body: init.body ? JSON.parse(String(init.body)) : undefined });
+      const body = typeof init.body === "string" ? JSON.parse(init.body) : init.body;
+      calls.push({ method, path, headers, body });
       const handler = handlers[`${method} ${path}`];
       if (!handler) throw new Error(`Unexpected request: ${method} ${url}`);
       const response = typeof handler === "function" ? await handler(init) : handler;
