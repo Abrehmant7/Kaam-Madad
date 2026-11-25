@@ -1,0 +1,10 @@
+# Direct backend dependencies (compatible ranges).
+# requirements.txt is the fully resolved, pinned set actually installed and tested.
+# To upgrade: edit ranges here, install into a fresh venv, run the test suite,
+# then regenerate requirements.txt with `python -m pip freeze > requirements.txt`.
+
+Django>=6.1,<6.2                 # Web framework, ORM, migrations, admin, sessions/CSRF
+djangorestframework>=3.18,<3.19  # JSON API layer
+psycopg[binary]>=3.3,<3.4        # PostgreSQL driver (psycopg 3)
+whitenoise>=6.12,<7              # Serves the built frontend + static files from the same origin
+python-dotenv>=1.2,<2            # Loads the local .env file in development

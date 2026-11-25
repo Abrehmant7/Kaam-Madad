@@ -1,0 +1,40 @@
+# Local development database for Kaam Madad.
+# The Compose project name, database name and user keep the internal identifier
+# "roshan-rozgaar"/"roshan_rozgaar" (the project's former name) so existing
+# containers and data volumes keep working.
+#
+# Only PostgreSQL runs in Docker; Django and Vite run directly on the host.
+# Values come from the repository-root .env file (copy .env.example to .env).
+# The host port defaults to 5434 so it does not clash with a PostgreSQL server
+# installed locally on the standard port 5432, or with other projects' Compose
+# databases that commonly use 5433. Change POSTGRES_PORT in .env if 5434 is taken.
+#
+#   docker compose up -d db      # start
+#   docker compose stop db       # stop (data is kept in the named volume)
+#   docker compose down -v       # stop and DELETE the local database volume
+
+name: roshan-rozgaar
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-roshan_rozgaar}
+      POSTGRES_USER: ${POSTGRES_USER:-roshan_rozgaar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (copy .env.example to .env)}
+    ports:
+      # Bound to localhost only: the development database is not exposed to the network.
+      - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      # PostgreSQL 18+ images keep data under /var/lib/postgresql/<major>/docker,
+      # so the volume is mounted at the parent directory.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:

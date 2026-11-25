@@ -1,0 +1,46 @@
+# --- Secrets and local configuration ---
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+
+# --- Private uploads and media (CNIC images, voice notes, job photos) ---
+# Never commit user-supplied files. Storage lives outside version control.
+backend/private_media/
+private_media/
+media/
+uploads/
+
+# --- Python ---
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+backend/staticfiles/
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/coverage/
+*.tsbuildinfo
+npm-debug.log*
+
+# --- Editors / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs ---
+*.log
