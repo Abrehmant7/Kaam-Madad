@@ -2,6 +2,8 @@
 
 import warnings
 
+from config.env import check_simulation_allowed
+
 from .base import *  # noqa: F403
 
 DEBUG = True
@@ -20,3 +22,9 @@ if not ALLOWED_HOSTS:  # noqa: F405
 
 if not CSRF_TRUSTED_ORIGINS:  # noqa: F405
     CSRF_TRUSTED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+# Local development is a demo deployment with the simulated phone-code provider
+# unless the environment says otherwise.
+DEPLOYMENT_MODE = DEPLOYMENT_MODE or DEPLOYMENT_MODE_DEMO  # noqa: F405
+PHONE_VERIFICATION_PROVIDER = PHONE_VERIFICATION_PROVIDER or PHONE_PROVIDER_DEMO  # noqa: F405
+check_simulation_allowed(DEPLOYMENT_MODE, PHONE_VERIFICATION_PROVIDER)

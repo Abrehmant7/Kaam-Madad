@@ -6,11 +6,17 @@ Frontend and API are served from one origin by this Django deployment
 
 from django.core.exceptions import ImproperlyConfigured
 
-from config.env import env_bool, env_int
+from config.env import check_simulation_allowed, env_bool, env_int
 
 from .base import *  # noqa: F403
 
 DEBUG = False
+
+# Live unless a separate demo deployment is declared explicitly. A live
+# deployment refuses to start with simulated phone verification (NFR-04).
+DEPLOYMENT_MODE = DEPLOYMENT_MODE or DEPLOYMENT_MODE_LIVE  # noqa: F405
+PHONE_VERIFICATION_PROVIDER = PHONE_VERIFICATION_PROVIDER or PHONE_PROVIDER_UNCONFIGURED  # noqa: F405
+check_simulation_allowed(DEPLOYMENT_MODE, PHONE_VERIFICATION_PROVIDER)
 
 # Fail fast instead of starting with an unsafe configuration.
 if not SECRET_KEY or len(SECRET_KEY) < 50 or SECRET_KEY.startswith("django-insecure"):  # noqa: F405

@@ -7,6 +7,7 @@ page in development. Internal exception text is never placed in a response.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
@@ -40,11 +41,10 @@ def api_exception_handler(exc: Exception, context: dict[str, Any]):
         return response
 
     code, message = _code_and_message(exc)
-    response.data = errors.error_body(
-        code=code,
-        message=message,
-        details=getattr(exc, "details", None),
-    )
+    details = getattr(exc, "details", None)
+    if isinstance(exc, exceptions.Throttled) and exc.wait is not None:
+        details = {**(details or {}), "retry_after_seconds": math.ceil(exc.wait)}
+    response.data = errors.error_body(code=code, message=message, details=details)
     return response
 
 

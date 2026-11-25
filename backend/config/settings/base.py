@@ -12,7 +12,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from apps.core.static_cache import is_immutable_asset
-from config.env import env_int, env_list, env_str
+from config.env import (
+    DEPLOYMENT_MODE_DEMO,
+    DEPLOYMENT_MODE_LIVE,
+    PHONE_PROVIDER_DEMO,
+    PHONE_PROVIDER_UNCONFIGURED,
+    env_choice,
+    env_int,
+    env_list,
+    env_str,
+)
 
 # backend/ directory and repository root.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -40,7 +49,28 @@ INSTALLED_APPS = [
     "rest_framework",
     "apps.core",
     "apps.accounts",
+    "apps.catalog",
 ]
+
+# --------------------------------------------------------------------------
+# Deployment mode (NFR-04) and phone verification (AUTH-03)
+# --------------------------------------------------------------------------
+# "live": real users; simulated authentication is refused at startup.
+# "demo": an explicitly separate demonstration deployment; new accounts are
+#         flagged is_demo and the UI shows a persistent demo label.
+# Each environment module supplies its default and calls check_simulation_allowed().
+DEPLOYMENT_MODE = env_choice("APP_DEPLOYMENT_MODE", {DEPLOYMENT_MODE_LIVE, DEPLOYMENT_MODE_DEMO})
+# "demo": codes are generated but no SMS is sent; the code is shown on a labelled demo screen.
+# "unconfigured": no SMS provider; phone confirmation honestly reports "unavailable".
+PHONE_VERIFICATION_PROVIDER = env_choice(
+    "PHONE_VERIFICATION_PROVIDER", {PHONE_PROVIDER_DEMO, PHONE_PROVIDER_UNCONFIGURED}
+)
+PHONE_VERIFICATION_POLICY = {
+    "CODE_TTL_SECONDS": 10 * 60,  # a code expires 10 minutes after it is issued
+    "MAX_ATTEMPTS": 5,  # wrong entries before the code is invalidated
+    "RESEND_COOLDOWN_SECONDS": 60,  # minimum gap between codes
+    "MAX_SENDS_PER_HOUR": 5,  # codes per account per rolling hour
+}
 
 MIDDLEWARE = [
     # First, so every response (including redirects and errors) carries X-Request-ID.
@@ -116,11 +146,25 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# Sessions live in PostgreSQL; cookies are HttpOnly. SameSite=Lax blocks
-# cross-site POSTs carrying the session while allowing normal navigation.
+# Sessions live in PostgreSQL; the session cookie is HttpOnly. SameSite=Lax
+# blocks cross-site POSTs carrying the session while allowing navigation.
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = 14 * 24 * 60 * 60  # 14 days; login rotates the session key
+# The SPA reads the CSRF cookie and echoes it in the X-CSRFToken header, so this
+# cookie is deliberately readable by JavaScript (it is not a secret on its own).
+CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_HEADER_NAME = "HTTP_X_CSRFTOKEN"
+
+# Shared cache for rate limiting, stored in PostgreSQL (no Redis). The table
+# is created by the core.0001 migration (`createcachetable`).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "app_cache",
+    }
+}
 
 # --------------------------------------------------------------------------
 # Internationalisation and time
@@ -161,15 +205,31 @@ STORAGES = {
 # Django REST Framework
 # --------------------------------------------------------------------------
 REST_FRAMEWORK = {
+    # Session auth that also enforces CSRF on anonymous mutations (signup/login)
+    # and answers 401 (not 403) when no valid session exists.
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
+        "apps.accounts.authentication.CsrfEnforcedSessionAuthentication",
     ],
+    # Client IP for rate limiting = REMOTE_ADDR unless trusted proxies are declared;
+    # never trust a client-supplied X-Forwarded-For by default.
+    "NUM_PROXIES": env_int("DJANGO_NUM_PROXIES", 0, minimum=0),
     # Deny by default; public endpoints (e.g. health) opt in explicitly.
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
     "EXCEPTION_HANDLER": "apps.core.api.exception_handler.api_exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
+    "DEFAULT_PAGINATION_CLASS": "apps.core.api.pagination.StandardPagination",
+}
+
+# Rate limits ("count/period", period = second|minute|hour|day). Read at request
+# time by apps.accounts.throttles. Per-IP limits are generous because many
+# people may share one network (e.g. an expo venue); per-phone limits are strict.
+API_THROTTLE_RATES = {
+    "auth_login_ip": "60/hour",
+    "auth_login_phone": "10/hour",
+    "auth_signup_ip": "30/hour",
+    "phone_code_ip": "60/hour",
 }
 
 # --------------------------------------------------------------------------

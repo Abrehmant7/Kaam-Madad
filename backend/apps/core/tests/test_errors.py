@@ -61,9 +61,11 @@ class ErrorEnvelopeTests(TestCase):
         self.assertEqual(error["details"], {"current_version": 3})
 
     def test_default_permission_denies_anonymous(self):
+        # M2: no session → 401 (log in), distinct from 403 (not allowed).
         response = self.client.get("/api/v1/test/protected/")
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["error"]["code"], "not_authenticated")
+        self.assertEqual(response["WWW-Authenticate"], "Session")
 
     def test_unhandled_api_exception_returns_generic_json_500(self):
         self.client.raise_request_exception = False

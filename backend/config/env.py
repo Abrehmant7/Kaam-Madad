@@ -48,6 +48,33 @@ def env_int(name: str, default: int, *, minimum: int | None = None) -> int:
     return value
 
 
+def env_choice(name: str, choices: Iterable[str], default: str | None = None) -> str | None:
+    """Read a variable that must be one of ``choices`` (case-insensitive)."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    allowed = sorted(choices)
+    if value not in allowed:
+        raise ImproperlyConfigured(f"{name} must be one of: {', '.join(allowed)}.")
+    return value
+
+
+DEPLOYMENT_MODE_LIVE = "live"
+DEPLOYMENT_MODE_DEMO = "demo"
+PHONE_PROVIDER_DEMO = "demo"
+PHONE_PROVIDER_UNCONFIGURED = "unconfigured"
+
+
+def check_simulation_allowed(deployment_mode: str, phone_provider: str) -> None:
+    """Simulated authentication is only allowed in an explicitly demo deployment (AUTH-03, NFR-04)."""
+    if phone_provider == PHONE_PROVIDER_DEMO and deployment_mode != DEPLOYMENT_MODE_DEMO:
+        raise ImproperlyConfigured(
+            "PHONE_VERIFICATION_PROVIDER=demo (simulated phone codes) is only allowed when "
+            "APP_DEPLOYMENT_MODE=demo. Live deployments must use a real provider or 'unconfigured'."
+        )
+
+
 def env_list(name: str, default: Iterable[str] = ()) -> list[str]:
     """Parse a comma-separated variable into a list, ignoring blank items."""
     raw = os.environ.get(name)

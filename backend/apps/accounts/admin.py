@@ -6,8 +6,8 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
 from .forms import UserChangeForm, UserCreationForm
-from .models import User
-from .phone import normalize_pk_mobile_number
+from .models import PhoneVerificationChallenge, User
+from .phone import mask_phone_number, normalize_pk_mobile_number
 
 
 @admin.register(User)
@@ -30,15 +30,34 @@ class UserAdmin(DjangoUserAdmin):
         "is_demo",
         "date_joined",
     )
-    list_filter = ("role", "is_active", "is_staff", "is_superuser", "is_demo", "preferred_language")
+    list_filter = (
+        "role",
+        "is_active",
+        "is_staff",
+        "is_superuser",
+        "is_demo",
+        "phone_confirmation_method",
+        "preferred_language",
+    )
     search_fields = ("phone_number",)
     search_help_text = _("Search by phone number, in any format (e.g. 0300 1234567).")
     ordering = ("-date_joined",)
-    readonly_fields = ("id", "last_login", "date_joined", "updated_at")
+    readonly_fields = (
+        "id",
+        "last_login",
+        "date_joined",
+        "updated_at",
+        "phone_confirmed_at",
+        "phone_confirmation_method",
+    )
 
     fieldsets = (
         (None, {"fields": ("id", "phone_number", "password")}),
         (_("Marketplace"), {"fields": ("role", "preferred_language", "is_demo")}),
+        (
+            _("Phone confirmation (not legal identity)"),
+            {"fields": ("phone_confirmed_at", "phone_confirmation_method")},
+        ),
         (
             _("Permissions"),
             {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")},
@@ -74,3 +93,27 @@ class UserAdmin(DjangoUserAdmin):
         except ValidationError:
             return super().get_search_results(request, queryset, search_term)
         return queryset.filter(phone_number=normalized), False
+
+
+@admin.register(PhoneVerificationChallenge)
+class PhoneVerificationChallengeAdmin(admin.ModelAdmin):
+    """Read-only audit view of issued codes. The code digest is never displayed."""
+
+    list_display = ("created_at", "masked_phone", "purpose", "method", "attempt_count", "max_attempts",
+                    "expires_at", "consumed_at", "invalidated_at", "invalidation_reason")
+    list_filter = ("purpose", "method", "invalidation_reason")
+    ordering = ("-created_at",)
+    fields = ("id", "user", "masked_phone", "purpose", "method", "provider_reference", "created_at",
+              "expires_at", "attempt_count", "max_attempts", "consumed_at", "invalidated_at",
+              "invalidation_reason")
+    readonly_fields = fields
+
+    @admin.display(description=_("phone number"))
+    def masked_phone(self, obj):
+        return mask_phone_number(obj.phone_number)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

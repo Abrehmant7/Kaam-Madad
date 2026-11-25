@@ -9,6 +9,7 @@ everything else → the React single-page app (index.html from the Vite build)
 from django.contrib import admin
 from django.urls import include, path, re_path
 
+from apps.core.config_view import ClientConfigView
 from apps.core.views import api_not_found, spa_index
 
 admin.site.site_header = "Kaam Madad staff administration"
@@ -17,6 +18,9 @@ admin.site.index_title = "Staff workflows"
 
 api_v1_patterns = [
     path("health/", include("apps.core.urls")),
+    path("config/", ClientConfigView.as_view(), name="client-config"),
+    path("auth/", include("apps.accounts.urls")),
+    path("catalog/", include("apps.catalog.urls")),
 ]
 
 urlpatterns = [
