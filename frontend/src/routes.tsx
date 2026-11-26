@@ -3,7 +3,7 @@ import type { RouteObject } from "react-router";
 import { GuestOnly, RequireAuth } from "./auth/guards";
 import { AppShell } from "./components/layout/AppShell";
 import { CatalogPreviewPage } from "./pages/CatalogPreviewPage";
-import { AccountHomePage, CustomerHomePage, WorkerHomePage } from "./pages/HomePages";
+import { AccountHomePage, CustomerHomePage } from "./pages/HomePages";
 import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -12,6 +12,10 @@ import { RouteErrorPage } from "./pages/RouteErrorPage";
 import { SignupPage } from "./pages/SignupPage";
 import { VoiceTestPage } from "./pages/VoiceTestPage";
 import { StartPage } from "./pages/StartPage";
+import { OnboardingAreasPage } from "./pages/worker/OnboardingAreasPage";
+import { OnboardingWorkPage } from "./pages/worker/OnboardingWorkPage";
+import { VerifyIdentityPage } from "./pages/worker/VerifyIdentityPage";
+import { WorkerDashboardPage } from "./pages/worker/WorkerDashboardPage";
 
 // Feature modules add their routes here (worker onboarding, requests, bookings…).
 export const routes: RouteObject[] = [
@@ -38,7 +42,16 @@ export const routes: RouteObject[] = [
           { path: "voice-test", element: <VoiceTestPage /> },
         ],
       },
-      { path: "worker", element: <RequireAuth role="worker"><WorkerHomePage /></RequireAuth> },
+      {
+        path: "worker",
+        element: <RequireAuth role="worker" />,
+        children: [
+          { index: true, element: <WorkerDashboardPage /> },
+          { path: "setup/work", element: <OnboardingWorkPage /> },
+          { path: "setup/areas", element: <OnboardingAreasPage /> },
+          { path: "verify", element: <VerifyIdentityPage /> },
+        ],
+      },
       { path: "customer", element: <RequireAuth role="customer"><CustomerHomePage /></RequireAuth> },
       { path: "*", element: <NotFoundPage /> },
     ],

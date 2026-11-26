@@ -83,3 +83,74 @@ export function bootHandlers(user: Record<string, unknown> | null = null): Recor
     "GET /api/v1/auth/me/": jsonResponse({ authenticated: Boolean(user), user }),
   };
 }
+
+const labels = (en: string, ur: string) => ({ en, ur });
+const page = <T,>(results: T[]) => ({ count: results.length, next: null, previous: null, results });
+
+export const TRADES = [
+  { code: "electrician", labels: labels("Electrician", "الیکٹریشن"), icon: "zap", sort_order: 10, service_count: 3 },
+  { code: "plumber", labels: labels("Plumber", "پلمبر"), icon: "wrench", sort_order: 20, service_count: 1 },
+];
+export const SERVICES = [
+  { code: "elec_fan_install", trade: "electrician", labels: labels("Ceiling fan installation", "چھت کے پنکھے کی تنصیب"), icon: "fan", sort_order: 1 },
+  { code: "elec_wiring_repair", trade: "electrician", labels: labels("Wiring repair", "وائرنگ کی مرمت"), icon: "cable", sort_order: 2 },
+  { code: "elec_ups_inverter", trade: "electrician", labels: labels("UPS / inverter installation", "یو پی ایس"), icon: "battery", sort_order: 3 },
+  { code: "plmb_leak_repair", trade: "plumber", labels: labels("Leak repair", "لیکیج کی مرمت"), icon: "droplet", sort_order: 1 },
+];
+const ISB = { code: "islamabad", labels: labels("Islamabad", "اسلام آباد"), sort_order: 10 };
+const RWP = { code: "rawalpindi", labels: labels("Rawalpindi", "راولپنڈی"), sort_order: 20 };
+export const AREAS = [
+  { code: "isb-g-9", city: ISB, labels: labels("G-9", "جی-9"), kind: "sector", centre: null, sort_order: 1 },
+  { code: "isb-g-10", city: ISB, labels: labels("G-10", "جی-10"), kind: "sector", centre: null, sort_order: 2 },
+  { code: "rwp-saddar", city: RWP, labels: labels("Saddar", "صدر"), kind: "locality", centre: null, sort_order: 1 },
+];
+export const QUESTIONS = {
+  trade: TRADES[0],
+  questions: [
+    { code: "services_offered", prompt: labels("", ""), help: labels("", ""), selection: { multiple: true, min: 1, max: null, choices_from: "trade_services" } },
+    { code: "primary_specialities", prompt: labels("", ""), help: labels("", ""), selection: { multiple: false, min: 1, max: 1, choices_from: "services_offered" } },
+    { code: "services_not_offered", prompt: labels("", ""), help: labels("", ""), selection: { multiple: true, min: 0, max: null, choices_from: "trade_services" } },
+  ],
+  choices: SERVICES.filter((service) => service.trade === "electrician"),
+  rules: [],
+};
+
+type Dashboard = Record<string, unknown>;
+
+/** A worker dashboard payload; ``step`` picks where onboarding stands. */
+export function makeDashboard(step: "work" | "areas" | null = null, overrides: Dashboard = {}): Dashboard {
+  const workDone = step !== "work";
+  const complete = step === null;
+  return {
+    profile: {
+      trade: workDone ? "electrician" : null,
+      services_offered: workDone ? ["elec_fan_install", "elec_wiring_repair"] : [],
+      primary_specialities: workDone ? ["elec_fan_install"] : [],
+      services_not_offered: [],
+      city: complete ? "islamabad" : null,
+      service_areas: complete ? ["isb-g-9"] : [],
+      accepting_requests: true,
+      updated_at: "2026-11-27T10:00:00+00:00",
+    },
+    onboarding: {
+      complete,
+      next_step: step,
+      steps: { work: { complete: workDone, issues: workDone ? [] : ["required"] }, areas: { complete, issues: complete ? [] : ["required"] } },
+    },
+    identity: { status: "not_started", case_id: null, method: null, masked_cnic: null, simulated: false, counts_here: false, decided_at: null, updated_at: null },
+    eligibility: { can_take_jobs: false, receives_requests: false, reasons: complete ? ["identity_not_started"] : ["profile_incomplete", "identity_not_started"] },
+    identity_provider: { provider: "demo_registry", available: true, simulated: true },
+    ...overrides,
+  };
+}
+
+/** Worker API + catalog handlers for the worker screens. */
+export function workerHandlers(dashboard: Dashboard = makeDashboard()): Record<string, Handler> {
+  return {
+    "GET /api/v1/workers/me/": jsonResponse(dashboard),
+    "GET /api/v1/catalog/trades/": jsonResponse(page(TRADES)),
+    "GET /api/v1/catalog/service-tags/": jsonResponse(page(SERVICES)),
+    "GET /api/v1/catalog/areas/": jsonResponse(page(AREAS)),
+    "GET /api/v1/catalog/trades/electrician/speciality-questions/": jsonResponse(QUESTIONS),
+  };
+}

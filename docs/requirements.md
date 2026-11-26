@@ -210,6 +210,40 @@ completed job must not turn a paused worker back on.**
 
 ---
 
+### M4 amendments (27 Nov 2026)
+
+The project owner's M4 brief (27 Nov 2026) changes the following requirements. Where it conflicts with the
+PDF text above, this amendment wins for M4 and later modules.
+
+- **Worker journey order** (replaces steps 1–5 of §1 "Worker journey"):
+  1. Create the account: mobile number, password and confirmation. The worker role is preselected from
+     "مجھے کام چاہیے", and the fixed password instruction can be played aloud.
+  2. Choose the work: trade, services offered and **one** main speciality (from the selected services). Services
+     not offered are optional, under "More options".
+  3. Choose the city and the service areas the worker is willing to travel to.
+  4. Then the dashboard. Phone confirmation moves there.
+  - Progress is saved per screen, and the server decides completion.
+- **WK-01 voice introduction** becomes an optional profile enhancement after onboarding.
+- **WK-02:** one main speciality instead of 1–3; the offered/excluded rules are unchanged.
+- **WK-04 location:** no browser geolocation or GPS. Manual selection of active catalog areas inside one city.
+  These are travel areas, not the worker's location.
+- **Identity (ID-01, ID-02, ID-04):**
+  - **OCR:** real OCR with **Tesseract on the backend host** reads the printed English **name** and the
+    **CNIC number** from a photo of the card front. The worker reviews and corrects both fields; corrections
+    are kept distinct from the scan. There is no simulated OCR.
+  - **Images:** photos are validated (type, size, dimensions) and not retained.
+  - **Registry:** only the registry is simulated. Name **and** number must match the same fictional record,
+    and success reads "Demo identity check passed. Name and CNIC number matched our demo registry." A fictional
+    address may be shown labelled "Demo address".
+  - **Approval:** demo approvals count only in demo mode; NADRA stays unconfigured.
+  - **Before approval:** verification is started from the dashboard, and the dashboard and profile editing
+    work before approval.
+- **Customer signup:** one screen (customer preselected from "مجھے کاریگر چاہیے"), then the customer dashboard
+  with phone confirmation. The job's service area is asked when the job is created (M5). There is no customer
+  CNIC and no required display name.
+
+---
+
 ## 4. Customer requests and worker selection
 
 **JOB-01 Draft request** — Customer records or types a job in Urdu/English. AI drafts a faithful Urdu

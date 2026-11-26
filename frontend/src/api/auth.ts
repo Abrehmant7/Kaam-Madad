@@ -46,7 +46,9 @@ export interface ClientConfig {
     speech_to_text: AiProviderStatus;
     interpretation: AiProviderStatus;
     text_to_speech: AiProviderStatus;
+    cnic_ocr?: AiProviderStatus;
   };
+  identity_verification?: AiProviderStatus;
   voice_limits?: { max_audio_bytes: number; max_audio_seconds: number; max_synthesis_chars: number };
   languages: Language[];
   default_language: Language;

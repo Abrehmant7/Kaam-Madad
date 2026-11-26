@@ -52,8 +52,9 @@ export function IconTileGroup<V extends string>({
     <fieldset>
       <legend className="mb-2 font-bold">{label}</legend>
       <div
-        role={mode === "single" ? "radiogroup" : "group"}
-        aria-label={label}
+        // The fieldset/legend already names a multi-select group; only single mode needs a radiogroup.
+        role={mode === "single" ? "radiogroup" : undefined}
+        aria-label={mode === "single" ? label : undefined}
         className={`grid gap-3 ${columns === 2 ? "grid-cols-2" : "grid-cols-1"}`}
       >
         {options.map((option) => {

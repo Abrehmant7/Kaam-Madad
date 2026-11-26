@@ -13,8 +13,8 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M1 Foundation | ✅ Complete (24 Nov 2026) |
 | M2 Accounts, language, catalog | ✅ Complete (25 Nov 2026) |
 | M3 Audio and AI adapters | ✅ Complete (25 Nov 2026) — fixture-verified; live keys not yet tested. 26 Nov: ElevenLabs read-aloud added |
-| M4 Worker onboarding | ⬜ Next |
-| M5 Customer and job requests | ⬜ Not started |
+| M4 Worker onboarding and identity check | ✅ Complete (27 Nov 2026) — real Tesseract OCR verified on synthetic cards; registry simulated |
+| M5 Customer and job requests | ⬜ Next |
 | M6 Recommendations and invitations | ⬜ Not started |
 | M7 Communication and agreements | ⬜ Not started |
 | M8 Booking and arrival | ⬜ Not started |
@@ -23,6 +23,109 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M11 Integration and delivery | ⬜ Not started |
 
 ---
+
+## M4 Worker onboarding and identity check — complete (27 Nov 2026)
+
+### Delivered
+
+- [x] **Three-screen worker onboarding:**
+  - Screen 1 is signup, with worker preselected from "مجھے کام چاہیے" and a play button for the fixed
+    password instruction.
+  - Screen 2 is trade, services and one main speciality, with exclusions under "More options".
+  - Screen 3 is a city plus travel areas.
+  - Saved per screen, with resume after a refresh or login. Urdu RTL and English.
+  - No microphone, location or CNIC needed.
+- [x] **Server-side validation** reuses the catalog rules: cross-trade services, main speciality not offered,
+  offered/excluded overlap, areas outside the city.
+- [x] **Worker dashboard:** eligibility with reasons, identity status, profile summary and edit links, the
+  accepting-requests choice (separate), phone confirmation, and an optional voice introduction link.
+- [x] **Real CNIC OCR:** Tesseract on the host.
+  - Images are validated before OCR (type, ≤ 5 MB, ≥ 400 × 250 px, ≤ 40 MP).
+  - Orientation, contrast and size are normalised, with up to four rotations within a 20 s budget.
+  - The temp folder is deleted and the image is not stored.
+  - Only the name and number are extracted; raw text is never logged or returned.
+- [x] **Editable review** of both fields (original scan shown, edits marked as corrections), retake, and
+  typing after an unreadable scan.
+- [x] **Simulated registry only:** name and number must match the same fictional record; `match`,
+  `name_mismatch` and `no_record` states; a labelled demo address; demo-only (startup guard, runtime guard,
+  seed refuses live).
+- [x] **Recorded per attempt:** status, method, timestamps, masked number, keyed digest, registry reference and
+  correction flags.
+- [x] **Shared `worker_eligibility()`** for M6 and M8 (see architecture §10); demo approval counts only in demo mode.
+- [x] **Read-only staff admin** for verification status and its source; the demo registry is visible.
+- [x] **Customer signup:** one screen, customer preselected from "مجھے کاریگر چاہیے", then the customer dashboard.
+- [x] **Fixed-instruction speech endpoint:** keys only, cached.
+- [x] **`check_ai_providers --only cnic_ocr --cnic-image …`** for real OCR checks.
+- [x] **Synthetic DEMO cards** in `docs/demo/cnic/`, plus the `seed_demo_registry` command.
+
+### Real OCR results (actual `tesseract.exe` v5.4.0.20240606, Windows, `eng`), 27 Nov 2026
+
+| Sample (pixels only, no embedded data) | Result |
+|---|---|
+| `demo-card-bilal-ahmed.png` 856×546 | read: `Bilal Ahmed`, `00000-1234567-1`, 0.4 s |
+| `demo-card-sana-tariq.png` | read: `Sana Tariq`, `00000-7654321-2` |
+| `demo-card-imran-siddiqui.png` | read: `Imran Siddiqui`, `00000-2468135-3` |
+| `demo-card-wrong-name.png` | read: `Kamran Shah`, `00000-1234567-1` |
+| `demo-card-unknown-number.png` | read: `Usman Ali`, `00000-9999999-9` |
+| `demo-card-sana-tariq-rotated.jpg` (sideways retake, 626×936) | read after turning 270°: `Sana Tariq`, `00000-7654321-2`, about 1.5 s |
+| `demo-card-imran-siddiqui-lowquality.jpg` (470×300, blurred, low contrast, JPEG q35) | **partial**: number `00000-2468135-3` read; the "Name" label was garbled, so the name was left blank (by design: no guessing) |
+| `demo-card-unreadable.jpg` (heavy blur) | unreadable: both fields blank |
+
+The first real run exposed a bug in choosing the best rotation: the status strings were compared
+alphabetically, so the rotated card came back "unreadable". It is now fixed with an explicit ranking, and the
+rotated card is read.
+
+### Browser walk-through (real backend, real Tesseract, Chrome at 360 px), 27 Nov 2026
+
+1. **Urdu worker journey (UI only):**
+   - "مجھے کام چاہیے" → signup with worker preselected, "Step 1 of 3" and the listen button.
+   - Screen 2: electrician, fan installation and wiring, main speciality fan installation, UPS excluded.
+   - Screen 3, after a **page refresh**, resumed correctly: Islamabad, G-9 and G-10.
+   - Dashboard: "Not yet", "Verify your identity", the verify button and the phone prompt.
+   - Verify: consent → upload the Bilal card → real OCR filled `Bilal Ahmed` / `00000-1234567-1` (0.5 s) → submit
+     → the exact passed message and the labelled demo address → the dashboard said "Yes, you can take jobs".
+   - No horizontal overflow on any screen.
+2. **Wrong name:** the scan read `Kamran Shah` → "name does not match" → the name was corrected to
+   `Bilal Ahmed` → passed, with `name_corrected: true`.
+3. **Unknown number:** the scan read `Usman Ali` / `00000-9999999-9` → "No demo record found".
+4. **Unreadable photo:** "nothing could be read" with both fields empty.
+   - Retake with the rotated card: read (rotation 270).
+   - Retake with the low-quality card: partial; the typed name plus the scanned number passed
+     (`name_corrected: true`).
+5. **New login:** after saving screen 2, logging out and logging in again landed on `/worker/setup/areas`.
+6. **Customer:** "مجھے کاریگر چاہیے" → customer preselected → `/customer`, with phone confirmation there.
+7. **Live mode on the real database:** the worker approved in step 1 is eligible in demo mode. With
+   `APP_DEPLOYMENT_MODE=live` the same worker gets `can_take_jobs: false`, reason
+   `demo_approval_not_accepted_here`. `IDENTITY_VERIFICATION_PROVIDER=demo_registry` with live mode is
+   refused at startup.
+
+The walk-through found and fixed:
+- The Urdu number example (`12345-1234567-1`) displayed in reverse group order inside RTL text; it is now
+  wrapped in LTR isolate marks.
+- The success title duplicated the message.
+
+### Automated checks (mocked where noted)
+
+| Check | Result |
+|---|---|
+| Backend tests (real PostgreSQL) | ✅ **233 passed**: onboarding rules, resume, eligibility, identity flow with a stub OCR, image validation, live-mode rejection, ownership, admin, seed, startup guard, instruction audio, Tesseract adapter with mocked `subprocess`, and **3 tests that run the real Tesseract executable** on the cards (skipped automatically if it is not installed) |
+| `check`, `makemigrations --check` | ✅ No issues; `workers.0001`, `voice.0002` |
+| Frontend typecheck / tests / build | ✅ No errors / **61 passed** (mocked API) / built |
+
+Also fixed during M4:
+- `IconTileGroup` multi-select groups were announced twice by screen readers (a fieldset plus a duplicate
+  `role=group`).
+- The catalog API always reported `"multiple": true`.
+
+### Known limitations
+
+- **Card design:** OCR is tuned and verified on the synthetic DEMO cards only (printed English name and number
+  on a plain background). Real CNIC photos, Urdu names and the back of the card are not tested. Low-quality
+  photos may yield only the number.
+- **Phone cameras:** "Take a photo" uses the browser's file picker with `capture`. Physical phones are not
+  tested.
+- **Scope:** no staff manual-review workflow yet (read-only admin); the eligibility check is defined but only
+  M6 and M8 will call it.
 
 ## M3 follow-up (26 Nov 2026): ElevenLabs `eleven_v3` read-aloud
 

@@ -9,6 +9,8 @@ import { Alert } from "../components/ui/Alert";
 import { Button } from "../components/ui/Button";
 import { IconTileGroup } from "../components/ui/IconTile";
 import { PasswordField, TextField } from "../components/ui/TextField";
+import { InstructionAudio } from "../features/instructions/InstructionAudio";
+import { StepHeader } from "../features/worker/shared";
 import { useI18n } from "../i18n/context";
 import { describeError, fieldErrorCodes, LocalMessage, translateFieldCodes } from "../i18n/errors";
 import { LANGUAGE_META } from "../i18n/types";
@@ -62,7 +64,9 @@ export function SignupPage() {
         role: role[0],
         preferred_language: language,
       });
-      navigate(`${PATHS.phone}?welcome=1`, { replace: true });
+      // Workers continue straight to onboarding screen 2; customers go to their dashboard.
+      // Phone confirmation is offered on both dashboards.
+      navigate(role[0] === "worker" ? PATHS.workerWork : PATHS.customer, { replace: true });
     } catch (error) {
       setErrorCodes(fieldErrorCodes(error));
       setFormError(error);
@@ -73,7 +77,11 @@ export function SignupPage() {
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-5">
-      <h1 className="text-3xl font-bold text-primary">{t("signup.title")}</h1>
+      {role[0] === "worker" ? (
+        <StepHeader step={1} title={t("signup.title")} />
+      ) : (
+        <h1 className="text-3xl font-bold text-primary">{t("signup.title")}</h1>
+      )}
 
       {formError !== null && <Alert tone="danger">{describeError(formError, t)}</Alert>}
 
@@ -109,6 +117,7 @@ export function SignupPage() {
         maxLength={128}
         required
       />
+      <InstructionAudio id="signup_password" />
       <PasswordField
         label={t("signup.passwordConfirmLabel")}
         value={passwordConfirm}

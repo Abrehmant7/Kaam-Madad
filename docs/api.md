@@ -1,7 +1,7 @@
 # Kaam Madad — API Contracts
 
 All endpoints are under `/api/v1/`, return JSON, and are served from the same origin as the web app.
-Implemented through **M3**. Planned endpoint families for later modules are listed in
+Implemented through **M4**. Planned endpoint families for later modules are listed in
 [requirements.md §10](requirements.md#10-api-contracts-and-screen-inventory) and are **not** implemented.
 
 ## Conventions
@@ -218,3 +218,107 @@ the previous provider result in a new record (`reused: true`).
 `provider` is `fixture`, `azure` or `elevenlabs`; for ElevenLabs `voice` is `<model>/<voice id>`.
 `GET /audio/syntheses/{id}/content/` → owner-only audio of that type, `private, no-store`. Cached per owner only (same text,
 language, provider and voice → `reused: true`); never in a shared cache.
+
+## Workers and identity (M4)
+
+All endpoints need a signed-in **worker** (`403 worker_role_required` otherwise). Each worker sees only their
+own records; another account's IDs return `404`.
+
+### Onboarding and dashboard
+
+`GET /workers/me/` → the dashboard payload (the profile is created on first use):
+
+```json
+{"profile": {"trade": "electrician", "services_offered": ["elec_fan_install", "elec_wiring_repair"],
+             "primary_specialities": ["elec_fan_install"], "services_not_offered": ["elec_ups_inverter"],
+             "city": "islamabad", "service_areas": ["isb-g-10", "isb-g-9"], "accepting_requests": true,
+             "updated_at": "…"},
+ "onboarding": {"complete": true, "next_step": null,
+                "steps": {"work": {"complete": true, "issues": []}, "areas": {"complete": true, "issues": []}}},
+ "identity": {"status": "not_started", "case_id": null, "method": null, "masked_cnic": null, "simulated": false,
+              "counts_here": false, "decided_at": null, "updated_at": null},
+ "eligibility": {"can_take_jobs": false, "receives_requests": false, "reasons": ["identity_not_started"]},
+ "identity_provider": {"provider": "demo_registry", "available": true, "simulated": true}}
+```
+
+- **`next_step`** is `"work"`, `"areas"` or `null`. Completion is always recomputed on the server from the stored
+  choices and the live catalog; it is never stored as a flag.
+- **`identity.status`** is one of: `not_started`, `in_progress`, `no_match`, `demo_approved`,
+  `provider_verified`, `manually_reviewed`, `rejected`, `expired`, `suspended`.
+- **`counts_here`** says whether that status is accepted in this deployment.
+- **`eligibility.reasons`** can contain: `account_inactive`, `profile_incomplete`, `identity_not_started`,
+  `identity_not_verified`, `identity_no_match`, `demo_approval_not_accepted_here`, `identity_rejected`,
+  `identity_expired`, `identity_suspended`, `not_accepting_requests`.
+
+Screen 2: `PUT /workers/me/work/`. The request body is
+`{"trade", "services_offered": [], "primary_specialities": [], "services_not_offered": []}`, and the response
+is the dashboard payload. It is validated with the catalog rules (`apps.catalog.speciality`) and the question
+limits; field error codes:
+
+- `trade`: `required`, `unknown_trade`.
+- `services_offered` (at least 1): `too_few`, `unknown_service` (inactive, or another trade's service).
+- `primary_specialities` (exactly 1): `too_few`, `too_many`, `primary_not_offered`.
+- `services_not_offered`: `offered_and_excluded_overlap`.
+
+Screen 3: `PUT /workers/me/areas/` `{"city", "service_areas": []}` → the dashboard payload. Field error codes:
+`city` → `required`, `unknown_city`; `service_areas` → `too_few`, `unknown_area`, `area_not_in_city`.
+
+`PATCH /workers/me/preferences/` `{"accepting_requests": bool}` → the dashboard payload. This is the worker's own
+choice and is separate from completion and identity.
+
+### Identity verification
+
+Scanning, review and the registry check are separate steps. OCR never approves anything.
+
+1. **Start:** `POST /identity/cases/` `{"consent": true}` → `201 {"case": Case, "provider": {…}}`.
+   - Without consent: `400`, field `consent` → `consent_required`.
+   - A new attempt supersedes an unfinished one.
+   - `409 verification_already_complete` once accepted here.
+   - `409 verification_not_editable` when suspended.
+2. **Current attempt:** `GET /identity/cases/` → `{"case": Case | null, "provider": {…}}`.
+3. **Scan:** `POST /identity/cases/{id}/scan/`, multipart field `image` (a JPEG/PNG/WebP photo of the card front) →
+   `{"case": Case}`. The image is validated and then read by **Tesseract on the server**; it is **not stored**.
+   - Image errors: `413 image_too_large` (> 5 MB), `415 image_unsupported` (wrong or corrupt type),
+     `400 image_dimensions` (under 400 × 250 px or over 40 MP).
+   - OCR errors carry `details.capability: "cnic_ocr"`, a `details.reason` and the updated `details.case`:
+     - `503 ai_provider_not_configured`, with reason `tesseract_not_found`, `tesseract_not_runnable` or
+       `tesseract_language_missing`.
+     - `502 ai_provider_unavailable`, with reason `ocr_timeout` or `ocr_engine_error`.
+4. **Submit:** `POST /identity/cases/{id}/submit/` `{"name", "cnic_number"}` → `{"case": Case, "eligibility": {…}}`.
+   - These are the details the worker confirmed or corrected; the number is accepted with or without dashes.
+   - Field codes: `invalid_name`, `invalid_cnic`.
+   - `409 verification_scan_required` until a scan has been processed (read, partial or unreadable).
+   - `503 identity_provider_not_configured` when no registry is available (live mode); nothing is approved.
+
+```json
+{"id": "…", "status": "demo_approved", "case_id": "…", "method": "demo_registry", "masked_cnic": "*****-*****67-1",
+ "simulated": true, "counts_here": true, "decided_at": "…", "updated_at": "…",
+ "consent": {"given_at": "…", "version": "2026-11-27"},
+ "scan": {"count": 1, "scanned_at": "…", "width": 856, "height": 546},
+ "ocr": {"status": "read", "provider": "tesseract", "engine": "tesseract v5.4.0…", "rotation": 0, "failure": null,
+         "simulated": false, "name": null, "cnic_number": null},
+ "review": {"submitted_at": "…", "name_corrected": false, "number_corrected": false},
+ "registry": {"outcome": "match", "provider": "demo_registry", "simulated": true, "reference": "DEMO-REG-0001",
+              "checked_at": "…", "attempts": 1, "demo_address": "House 12, Street 4, Demo Town, Islamabad"}}
+```
+
+- **`ocr.status`** is `not_run`, `read` (name and number), `partial` (one of them), `unreadable` or `failed`.
+- **`ocr.name` and `ocr.cnic_number`** are the ORIGINAL scan result, returned to the owner for review until the
+  attempt is approved. The full number never appears in any other payload.
+- **`review.*_corrected`** records whether the submitted values differ from the scan.
+- **`registry.outcome`** is `not_checked`, `match`, `name_mismatch` (the number exists but the name differs; the
+  recorded name is never revealed) or `no_record`.
+- **Matching:** names are compared without regard to case or spacing, and numbers without regard to dashes.
+- **`demo_address`** is fictional. It is shown labelled "Demo address" and is never a service area.
+
+### Fixed instructions
+
+`GET /instructions/{key}/audio/?language=ur|en` is public, because screen 1 is before login. It returns speech
+for one fixed instruction: `signup_password`, `onboarding_work`, `onboarding_areas` or `identity_consent`.
+- **Only fixed text:** the server owns the text, so nothing the user typed can reach speech synthesis.
+- **Cached:** each key, language and voice is synthesised once.
+- **Header:** `X-Audio-Simulated: 1` marks the fixture tone.
+- **Errors:** `404` for an unknown key; provider errors as in Voice and AI.
+
+`GET /config/` also returns `ai.cnic_ocr` (`{"provider": "tesseract", "available", "simulated": false}`) and
+`identity_verification`.

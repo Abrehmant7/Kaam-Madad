@@ -14,7 +14,8 @@ describe("routes", () => {
     renderApp("/", "ur");
     expect(await screen.findByRole("heading", { level: 1, name: ur["landing.title"] })).toBeInTheDocument();
     expect(screen.getByText(ur["demo.banner"])).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: ur["landing.getStarted"] })).toHaveAttribute("href", "/start");
+    expect(screen.getByRole("link", { name: ur["landing.needWork"] })).toHaveAttribute("href", "/signup?role=worker");
+    expect(screen.getByRole("link", { name: ur["landing.needWorker"] })).toHaveAttribute("href", "/signup?role=customer");
     expect(await screen.findByText(ur["status.ready"])).toBeInTheDocument();
   });
 

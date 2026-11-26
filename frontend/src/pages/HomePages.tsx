@@ -1,4 +1,4 @@
-import { HardHat, House, List, Mic, Phone, ShieldCheck } from "lucide-react";
+import { House, List, Mic, Phone, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -74,17 +74,6 @@ function RoleHome({ title, badge, nextKeys }: { title: string; badge: ReactNode;
         </Link>
       </div>
     </div>
-  );
-}
-
-export function WorkerHomePage() {
-  const { t } = useI18n();
-  return (
-    <RoleHome
-      title={t("home.worker.title")}
-      badge={<StatusBadge tone="info" icon={<HardHat className="size-4" aria-hidden />}>{t("role.worker.badge")}</StatusBadge>}
-      nextKeys={["home.worker.next.voice", "home.worker.next.cnic", "home.worker.next.skills", "home.worker.next.area"]}
-    />
   );
 }
 

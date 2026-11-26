@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { en } from "../i18n/resources/en";
 import { ur } from "../i18n/resources/ur";
-import { bootHandlers, DEMO_CONFIG, errorEnvelope, jsonResponse, makeUser, mockApi } from "../test/http";
+import { bootHandlers, DEMO_CONFIG, errorEnvelope, jsonResponse, makeDashboard, makeUser, mockApi, workerHandlers } from "../test/http";
 import { renderApp } from "../test/renderApp";
 
 describe("route guards", () => {
@@ -17,12 +17,10 @@ describe("route guards", () => {
   });
 
   it("sends a worker who opens the customer home back to the worker home (no loop)", async () => {
-    mockApi(bootHandlers(makeUser({ role: "worker", preferred_language: "en" })));
+    mockApi({ ...bootHandlers(makeUser({ role: "worker", preferred_language: "en" })), ...workerHandlers() });
     const { router } = renderApp("/customer", "en");
-    expect(await screen.findByRole("heading", { level: 1, name: en["home.worker.title"] })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: en["worker.dashboard.title"] })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/worker");
-    // The home lists future features as unavailable rather than showing fake data.
-    expect(screen.getAllByText(en["common.notAvailableYet"])).toHaveLength(4);
   });
 
   it("applies the account language after session restore", async () => {
@@ -80,6 +78,7 @@ describe("login and signup", () => {
     let attempts = 0;
     const calls = mockApi({
       ...bootHandlers(),
+      ...workerHandlers(),
       "POST /api/v1/auth/login/": () =>
         ++attempts === 1
           ? jsonResponse(errorEnvelope("invalid_credentials", "r2"), 400)
@@ -92,7 +91,7 @@ describe("login and signup", () => {
     expect(await screen.findByText(ur["errors.invalid_credentials"])).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: ur["login.submit"] }));
-    expect(await screen.findByRole("heading", { level: 1, name: ur["home.worker.title"] })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: ur["worker.dashboard.title"] })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/worker");
 
     const login = calls.find((call) => call.method === "POST" && call.path === "/api/v1/auth/login/");
@@ -126,22 +125,43 @@ describe("login and signup", () => {
     expect(sent.preferred_language).toBe("en");
   });
 
-  it("goes to phone confirmation after a successful signup (guard does not race the form)", async () => {
-    mockApi({
+  it("takes a new worker straight to screen 2 after signup (guard does not race the form)", async () => {
+    const calls = mockApi({
       ...bootHandlers(),
+      ...workerHandlers(),
+      "GET /api/v1/workers/me/": jsonResponse(makeDashboard("work")),
       "POST /api/v1/auth/signup/": jsonResponse({ authenticated: true, user: makeUser({ preferred_language: "en" }) }, 201),
-      "GET /api/v1/auth/phone-confirmation/": jsonResponse({
-        status: "unconfirmed", method: null, confirmed_at: null, provider: DEMO_CONFIG.phone_verification, active_code: null,
-      }),
     });
     const { router } = renderApp("/signup?role=worker", "en");
+    expect(await screen.findByText(en["onboarding.step"].replace("{current}", "1").replace("{total}", "3"))).toBeInTheDocument();
+    expect(screen.getByText(en["instructions.signup_password"])).toBeInTheDocument();
     await userEvent.type(await screen.findByLabelText(en["signup.phoneLabel"]), "03001234567");
     await userEvent.type(screen.getByLabelText(en["signup.passwordLabel"]), "Strong-Pass-2026");
     await userEvent.type(screen.getByLabelText(en["signup.passwordConfirmLabel"]), "Strong-Pass-2026");
     await userEvent.click(screen.getByRole("button", { name: en["signup.submit"] }));
-    expect(await screen.findByText(en["signup.success"])).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/account/phone");
-  });
+    expect(await screen.findByRole("heading", { level: 1, name: en["onboarding.work.title"] })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/worker/setup/work");
+    const sent = calls.find((call) => call.path === "/api/v1/auth/signup/")?.body as Record<string, unknown>;
+    expect(sent.role).toBe("worker");
+  }, 15000);
+
+  it("takes a new customer from \"I need a worker\" to the customer dashboard with phone confirmation there", async () => {
+    mockApi({
+      ...bootHandlers(),
+      "GET /api/v1/health/ready/": jsonResponse({ status: "ok", checks: {} }),
+      "POST /api/v1/auth/signup/": jsonResponse({ authenticated: true, user: makeUser({ role: "customer", preferred_language: "en" }) }, 201),
+    });
+    const { router } = renderApp("/", "en");
+    await userEvent.click(await screen.findByRole("link", { name: en["landing.needWorker"] }));
+    expect(screen.getByRole("radio", { name: new RegExp(en["role.customer.title"]) })).toHaveAttribute("aria-checked", "true");
+    await userEvent.type(await screen.findByLabelText(en["signup.phoneLabel"]), "03001234567");
+    await userEvent.type(screen.getByLabelText(en["signup.passwordLabel"]), "Strong-Pass-2026");
+    await userEvent.type(screen.getByLabelText(en["signup.passwordConfirmLabel"]), "Strong-Pass-2026");
+    await userEvent.click(screen.getByRole("button", { name: en["signup.submit"] }));
+    expect(await screen.findByRole("heading", { level: 1, name: en["home.customer.title"] })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/customer");
+    expect(screen.getByRole("link", { name: en["home.managePhone"] })).toHaveAttribute("href", "/account/phone");
+  }, 15000);
 
   it("returns to ?next= after login", async () => {
     mockApi({
@@ -162,13 +182,14 @@ describe("login and signup", () => {
   it("ignores an external ?next= target", async () => {
     mockApi({
       ...bootHandlers(),
+      ...workerHandlers(),
       "POST /api/v1/auth/login/": jsonResponse({ authenticated: true, user: makeUser({ preferred_language: "en" }) }),
     });
     const { router } = renderApp("/login?next=%2F%2Fevil.example", "en");
     await userEvent.type(await screen.findByLabelText(en["signup.phoneLabel"]), "03001234567");
     await userEvent.type(screen.getByLabelText(en["signup.passwordLabel"]), "Strong-Pass-2026");
     await userEvent.click(screen.getByRole("button", { name: en["login.submit"] }));
-    expect(await screen.findByRole("heading", { level: 1, name: en["home.worker.title"] })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: en["worker.dashboard.title"] })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/worker");
   });
 
@@ -200,12 +221,13 @@ describe("language switch", () => {
   it("saves the language to the account when signed in", async () => {
     const calls = mockApi({
       ...bootHandlers(makeUser({ preferred_language: "ur" })),
+      ...workerHandlers(),
       "PATCH /api/v1/auth/me/language/": jsonResponse({ authenticated: true, user: makeUser({ preferred_language: "en" }) }),
     });
     renderApp("/worker", "ur");
-    await screen.findByRole("heading", { level: 1, name: ur["home.worker.title"] });
+    await screen.findByRole("heading", { level: 1, name: ur["worker.dashboard.title"] });
     await userEvent.click(screen.getByRole("button", { name: ur["nav.changeLanguage"].replace("{language}", "English") }));
-    expect(await screen.findByRole("heading", { level: 1, name: en["home.worker.title"] })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: en["worker.dashboard.title"] })).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("dir", "ltr");
     expect(window.localStorage.getItem("rr.language")).toBe("en");
     await waitFor(() =>

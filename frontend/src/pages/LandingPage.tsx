@@ -1,4 +1,4 @@
-import { List, LogIn, UserPlus } from "lucide-react";
+import { HardHat, House, List, LogIn } from "lucide-react";
 import { Link } from "react-router";
 
 import { PATHS } from "../auth/paths";
@@ -21,8 +21,11 @@ export function LandingPage() {
       </section>
 
       <div className="grid gap-3">
-        <ButtonLink to={PATHS.start} icon={<UserPlus className="size-5" aria-hidden />} fullWidth>
-          {t("landing.getStarted")}
+        <ButtonLink to={`${PATHS.signup}?role=worker`} icon={<HardHat className="size-5" aria-hidden />} fullWidth>
+          {t("landing.needWork")}
+        </ButtonLink>
+        <ButtonLink to={`${PATHS.signup}?role=customer`} icon={<House className="size-5" aria-hidden />} fullWidth>
+          {t("landing.needWorker")}
         </ButtonLink>
         <ButtonLink to={PATHS.login} variant="secondary" icon={<LogIn className="size-5" aria-hidden />} fullWidth>
           {t("landing.login")}

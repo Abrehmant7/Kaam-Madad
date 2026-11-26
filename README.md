@@ -10,10 +10,10 @@ using Urdu text, spoken instructions, recognisable icons and guided choices.
 
 Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 
-> **Status: Modules M1–M3 complete** (foundation; accounts, language, catalog; audio and AI adapters). Workers
-> and customers can sign up, log in, confirm their phone through a clearly labelled **demo** flow, switch
-> Urdu/English, and try the **voice test** (record → transcribe → correct → confirm → read aloud). Worker
-> onboarding, job requests, recommendations, chat, quotations and bookings are **not** implemented yet.
+> **Status: Modules M1–M4 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
+> onboarding and identity check). Workers finish a three-screen onboarding, see a dashboard, and can scan a
+> synthetic DEMO card with real **Tesseract OCR** for a **simulated** demo-registry check. Customers sign up on
+> one screen. Job requests, recommendations, chat, quotations and bookings are **not** implemented yet.
 > See [docs/progress.md](docs/progress.md).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
@@ -32,9 +32,11 @@ one origin. Full version list: [docs/architecture.md](docs/architecture.md#1-sta
 - Python **3.12+** (tested 3.14)
 - Node.js **22.22+** (tested 24.12) and npm
 - **Either** Docker Desktop / Docker Engine with Compose **or** an existing PostgreSQL 14+ server
+- **Tesseract OCR 5.x** with English language data for the CNIC scan (M4). Install steps:
+  [§7](#install-tesseract-ocr-card-scanning-runs-on-this-machine). Everything else works without it.
 
-No speech, OCR, OTP, NADRA or other provider keys are needed (none are integrated yet; see
-[Integrations not available yet](#integrations-not-available-yet)).
+No provider keys are required to run the app. Optional speech/AI keys are covered in §6; OTP and NADRA are not
+integrated (see [Integrations not available yet](#integrations-not-available-yet)).
 
 ## 1. Configure
 
@@ -145,18 +147,20 @@ To change the proxy target, copy `frontend/.env.example` to `frontend/.env.local
 To open the dev site from a phone on the same network: `npm run dev -- --host`, and add the computer's LAN
 IP to `DJANGO_ALLOWED_HOSTS` and `http://<ip>:5173` to `DJANGO_CSRF_TRUSTED_ORIGINS` in `.env`.
 
-## 5. Using the app (M2)
+## 5. Using the app (M2, updated in M4)
 
 Local development runs as a **demo deployment** (`APP_DEPLOYMENT_MODE=demo`): every screen shows a demo banner
 and new accounts are marked as demo accounts. Use fictional phone numbers.
 
 **Create a worker and a customer**
-1. Open http://localhost:5173 → **شروع کریں / Get started**.
-2. Choose a language (applies immediately), then **میں کاریگر ہوں / I am a worker** or
-   **مجھے کاریگر چاہیے / I need a worker** → continue.
-3. Enter a mobile number (any format, e.g. `0300 1234567`) and a password (8+ characters, not only digits,
-   not a common password) twice → **Create account**. You are logged in and taken to phone confirmation.
-4. Log out (header button) and repeat with another number and the other role.
+1. Open http://localhost:5173 and tap **مجھے کام چاہیے / I need work** or **مجھے کاریگر چاہیے / I need a worker**.
+   The role is preselected on the signup screen. Use the header button to switch language.
+2. Enter a mobile number (any format, e.g. `0300 1234567`) and a password (8+ characters, not only digits,
+   not a common password) twice → **Create account**.
+   - Workers continue to onboarding screens 2 and 3 (see §7).
+   - Customers land on their dashboard.
+   - Phone confirmation is offered on both dashboards.
+3. Log out (header button) and repeat with another number and the other role.
 
 **Log in**: **Log in** on the landing page, phone number + password. Workers land on `/worker`, customers on
 `/customer`; opening the other role's page redirects to your own home. Sessions survive page reloads for 14 days.
@@ -179,7 +183,8 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 | Capability | Status |
 |---|---|
 | SMS / OTP delivery | **Not integrated.** Demo mode simulates codes (no SMS). With `PHONE_VERIFICATION_PROVIDER=unconfigured` the app honestly says SMS confirmation is unavailable. Live mode refuses to start with the demo provider. |
-| NADRA / identity verification, CNIC OCR | Not implemented (M4; NADRA only with authorised access) |
+| CNIC OCR | **Implemented** (M4): local Tesseract on the backend host (no external service). Reads the printed English name and number. |
+| NADRA / identity verification | **Not integrated** (needs authorised access). Demo deployments use a **simulated** fictional registry; demo approvals never count in live mode. |
 | Speech-to-text, interpretation, text-to-speech | **Implemented** (M3): Gemini (speech-to-text, interpretation); Azure AI Speech or ElevenLabs `eleven_v3` (Urdu read-aloud, selectable). Need keys in `.env`; without them development uses labelled fixtures and production reports "not configured". Not yet verified with live keys — see [Live check](#live-check-with-real-providers). |
 | Recommendations, chat, quotations, bookings, reviews, reports | Not implemented (M6–M10) |
 
@@ -261,7 +266,95 @@ Privacy note: ElevenLabs keeps generated speech in the account's history unless 
 Fixture results are refused in a live deployment: production settings with `APP_DEPLOYMENT_MODE=live` and any
 `*_PROVIDER=fixture` fail at startup.
 
-## 7. Checks and tests
+## 7. Worker onboarding and identity check (M4)
+
+### Install Tesseract OCR (card scanning runs on this machine)
+
+CNIC photos are read by the **Tesseract** program on the Django host. No external OCR service is used.
+
+**Windows**
+
+```cmd
+winget install --id UB-Mannheim.TesseractOCR --exact
+"C:\Program Files\Tesseract-OCR\tesseract.exe" --version
+"C:\Program Files\Tesseract-OCR\tesseract.exe" --list-langs
+```
+
+The installer includes the `eng` language data and does not add Tesseract to PATH. The backend also looks in
+`C:\Program Files\Tesseract-OCR\tesseract.exe` automatically. For any other location, set `TESSERACT_CMD` in `.env`.
+
+**Linux (Debian/Ubuntu)**
+
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-eng
+tesseract --version && tesseract --list-langs
+```
+
+`--list-langs` must include `eng` (or whatever `TESSERACT_LANG` names). Optional settings in `.env`:
+
+```
+TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe   # or /usr/bin/tesseract; default: "tesseract" on PATH
+TESSERACT_LANG=eng
+OCR_TIMEOUT_SECONDS=20
+```
+
+If Tesseract is missing, the verification screen shows a setup error. The onboarding screens and the dashboard
+keep working without it.
+
+### Update an existing checkout
+
+From `backend/` (venv active):
+
+```cmd
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_catalog
+python manage.py seed_demo_registry
+python manage.py check_ai_providers --only cnic_ocr --cnic-image ..\docs\demo\cnic\demo-card-bilal-ahmed.png
+```
+
+- `pip install` adds **Pillow** for photo checks.
+- `seed_catalog` sets the main speciality to exactly one.
+- `seed_demo_registry` loads the fictional registry. It is idempotent and refused in live mode.
+- The last line should print `[OK] cnic_ocr: … status=read name='Bilal Ahmed' number=*****-*****67-1`.
+
+### Demo: worker
+
+1. Open http://localhost:5173 and tap **مجھے کام چاہیے / I need work**.
+   - **Screen 1:** mobile number and password, with a play button for the password instruction.
+   - **Screen 2:** trade, the services offered, then **one** main speciality. Services not offered are under
+     **More options**.
+   - **Screen 3:** a city and the areas the worker will travel to.
+   - No microphone, location permission or CNIC is needed. Each screen is saved, so a refresh or a later
+     login resumes at the right screen.
+2. The **dashboard** is usable straight away. It shows profile completion, identity status and the
+   "accepting requests" choice separately, and explains why the worker cannot take jobs yet.
+3. Tap **Verify identity to take jobs**:
+   1. Give consent.
+   2. **Take a photo** or **Upload a photo** of a DEMO card from [`docs/demo/cnic/`](docs/demo/cnic/).
+   3. Check the name and number Tesseract read, correct them if needed, and submit.
+
+| Card | What happens |
+|---|---|
+| `demo-card-bilal-ahmed.png`, `demo-card-sana-tariq.png`, `demo-card-imran-siddiqui.png` | Read → submit → **"Demo identity check passed. Name and CNIC number matched our demo registry."** with a labelled **Demo address** |
+| `demo-card-wrong-name.png` | Bilal Ahmed's number with the name "Kamran Shah" → **name does not match** → correct the name to `Bilal Ahmed` → passes (recorded as a correction) |
+| `demo-card-unknown-number.png` | Number `00000-9999999-9` → **no demo record** |
+| `demo-card-unreadable.jpg` | Blurred → **nothing could be read** → retake, or type the details |
+| `demo-card-sana-tariq-rotated.jpg` | Sideways phone photo → turned and read |
+| `demo-card-imran-siddiqui-lowquality.jpg` | Small, soft, low contrast → number read, name left blank → type `Imran Siddiqui` |
+
+Photos are not stored: they are checked (type, ≤ 5 MB, ≥ 400 × 250 px), read in a temporary folder that is
+then deleted, and only the masked number (`*****-*****67-1`) is kept. Demo approvals count **only** when
+`APP_DEPLOYMENT_MODE=demo`. In a live deployment the demo registry is refused at startup, and NADRA access
+stays unconfigured.
+
+### Demo: customer
+
+Tap **مجھے کاریگر چاہیے / I need a worker** and enter your mobile number and password on one screen. You land
+on the customer dashboard, where phone confirmation is available. Job requests (and their service area) come
+in M5.
+
+## 8. Checks and tests
 
 ```bash
 # Backend (from backend/, venv active) — runs against a real PostgreSQL test database
@@ -282,7 +375,7 @@ curl http://localhost:5173/api/v1/health/live/    # {"status":"ok"}
 curl http://localhost:5173/api/v1/health/ready/   # {"status":"ok","checks":{"database":"ok"}} or 503
 ```
 
-## 8. Production-like local run (same origin)
+## 9. Production-like local run (same origin)
 
 Builds the frontend and lets Django serve everything on one port, with production settings
 (HTTPS redirect disabled only because this local test uses plain HTTP):
@@ -317,8 +410,9 @@ one.
 - **Libraries**: listed with versions in [docs/architecture.md](docs/architecture.md#1-stack-resolved-versions-m1),
   `backend/requirements.txt` and `frontend/package-lock.json`. Icons: lucide-react (ISC). Urdu font: Noto Nastaliq Urdu (SIL Open Font
   License) via `@fontsource/noto-nastaliq-urdu`, self-hosted.
-- **External services / AI providers**: Google Gemini API (speech-to-text, interpretation) and Azure AI Speech or ElevenLabs (text-to-speech), used only when keys are configured; M2 phone confirmation is a labelled simulation. OCR, OTP and identity
-  providers arrive in later modules and will be documented with their exact modes.
+- **External services / AI providers**: Google Gemini API (speech-to-text, interpretation) and Azure AI Speech or ElevenLabs (text-to-speech), used only when keys are configured; M2 phone confirmation is a labelled simulation. CNIC OCR uses the locally installed
+  Tesseract OCR engine (Apache-2.0) via its command line, with Pillow (MIT-CMU) for image checks. The identity
+  registry is a local, fictional, demo-only simulation. OTP and NADRA providers are not integrated.
 - **AI coding tools**: this codebase is being written with AI coding assistance (Claude Code, Anthropic).
 - **Earlier prototype**: the earlier Roshan Rozgaar prototype (the project's former name) served only as
   inspiration; no code was copied or adapted from it.

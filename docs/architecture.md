@@ -401,7 +401,7 @@ magic bytes; the file is stored as `.mp3` or `.wav` and served with its real typ
 - Errors are stored as error objects or codes and translated at render, so messages follow a language switch.
   This also fixed the same issue on the M2 login, signup and phone pages.
 
-### M4 handoff: CNIC OCR and identity verification (ID-01 to ID-04)
+### M4 handoff: CNIC OCR and identity verification (ID-01 to ID-04) — superseded, see §10
 
 `apps/providers/identity.py` defines `CnicOcrProvider.extract()` and `IdentityVerificationProvider.verify()` with
 only `Unconfigured*` implementations. M3 exposes no CNIC endpoint and accepts no CNIC upload. For M4:
@@ -416,3 +416,83 @@ only `Unconfigured*` implementations. M3 exposes no CNIC endpoint and accepts no
    Real NADRA verification only with authorised access and a contract; keep `UnconfiguredIdentityVerification`
    until then. Manual staff review and demo approval are separately labelled methods; nothing is ever labelled
    "NADRA verified" without the real provider.
+
+## 10. Module M4 — worker onboarding and identity check
+
+API contracts: [api.md § Workers and identity](api.md#workers-and-identity-m4). Requirement changes:
+[requirements.md § M4 amendments](requirements.md#m4-amendments-27-nov-2026).
+
+### Onboarding (`apps/workers`)
+
+- `WorkerProfile` stores the worker's own declarations: the trade, the services offered, one main speciality,
+  the services not offered, a city and the service areas. It also stores `accepting_requests`, the worker's
+  own choice, which is separate from completion and identity.
+- `onboarding.py` reuses the catalog rule set (`apps.catalog.speciality.validate_speciality_answers`: unknown
+  or other-trade services, offered ∩ excluded, main ⊆ offered) plus the selection limits stored on
+  `SpecialityQuestion` (the main speciality is exactly 1). It also checks that each area belongs to the chosen city.
+- **Completion is never stored:** `onboarding_state()` recomputes it from the saved data and the live catalog,
+  so a deactivated service makes a profile incomplete again. Each `PUT` saves one screen, so the frontend
+  resumes at `next_step` after a refresh or login.
+- **Screens:** screen 1 is the M2 signup (worker preselected from "مجھے کام چاہیے"); screens 2 and 3 are
+  `/worker/setup/work` and `/worker/setup/areas`. `/worker` redirects there until the profile is complete.
+- **No location:** there is no geolocation code; areas are chosen manually from the catalog.
+
+### Identity: real OCR, simulated registry
+
+1. **Scan:** `apps.workers.identity.scan_card`.
+   1. Validate the photo before any OCR: magic bytes, then Pillow decodes the header and checks that the
+      format matches. It must be ≤ 5 MB, at least 400 × 250 px and at most 40 MP; `verify()` catches truncated
+      files.
+   2. `TesseractCnicOcr` (`apps/providers/identity.py`) prepares the image: EXIF orientation, grayscale, about
+      1800 px wide, autocontrast and sharpening.
+   3. It writes the image to a private `TemporaryDirectory` and runs
+      `tesseract <png> stdout -l eng --psm 6` with the remaining budget (`OCR_TIMEOUT_SECONDS`, default 20 s).
+      If both fields are not found, it retries rotated 90°, 270° and 180°. The folder is deleted on exit.
+   4. Parsing extracts exactly one 13-digit candidate (dashes and spaces optional, `O` read as `0`), and the
+      value of the holder's labelled **Name** field ("Father Name" is skipped). Missing or ambiguous → `None`.
+      Raw text is never stored, logged or returned.
+   5. The image is **not retained**.
+2. **Review:** only the two extracted fields are held, as the owner's draft (`ocr_name_pending`,
+   `ocr_number_pending`). The worker edits them in a keyed review form; whether each submitted value differs from
+   the scan is stored (`name_corrected`, `number_corrected`).
+3. **Registry:** `DemoRegistryVerification` looks up the keyed digest of the number (`salted_hmac`), then compares
+   the normalised name (case and spacing) with the **same** record → `match` / `name_mismatch` / `no_record`.
+   - Only `match` sets `demo_approved` with method `demo_registry`, a timestamp and the registry reference.
+   - Stored: the masked number `*****-*****67-1` and the digest; the draft is cleared.
+   - A submit needs a processed scan (read, partial or unreadable), so a typed-only approval without a scan is
+     impossible. If Tesseract is missing, nobody can verify, which is the intended "setup error".
+4. **Demo-only rule:**
+   - `IDENTITY_VERIFICATION_PROVIDER=demo_registry` is refused at startup unless `APP_DEPLOYMENT_MODE=demo`
+     (`check_simulation_allowed`), and is replaced by the unconfigured provider at runtime in live mode.
+   - `seed_demo_registry` refuses to run in live mode.
+   - NADRA stays `UnconfiguredIdentityVerification`.
+5. **Staff:** a read-only Django Admin for `IdentityVerification` shows status, method, the OCR source
+   (`tesseract (read)`), the registry source (`demo_registry (demo, fictional)`), the masked number and the
+   reference. It never shows the digest or the draft, and there is no image to show.
+
+### Eligibility (shared check)
+
+`apps.workers.eligibility.worker_eligibility(user)` →
+`Eligibility(can_take_jobs, receives_requests, reasons)`.
+
+**Rules:**
+- Worker role.
+- `is_active`.
+- `onboarding.is_complete`.
+- Identity status `provider_verified` or `manually_reviewed`, or `demo_approved` **only in demo mode**.
+- `receives_requests` additionally requires `accepting_requests`.
+- Phone confirmation is not part of eligibility.
+
+**Callers (to be wired by later modules):**
+- **M6 recommendations:** list only workers whose `receives_requests` is true, and re-check before sending an
+  invitation.
+- **M8 booking finalisation:** call `can_take_jobs` inside the booking transaction after locking the worker
+  row, and refuse to confirm if it is false. A paused worker can still finish existing bookings.
+
+### Fixed instruction audio (UX-03)
+
+`apps/voice/instructions.py` holds four fixed Urdu/English sentences.
+`GET /instructions/{key}/audio/` synthesises each key/language/voice once (`InstructionAudio`) with the
+configured TTS provider. The client sends only the key, so passwords, codes and CNIC numbers can never reach
+speech synthesis. The frontend `InstructionAudio` component always shows the text and offers the play button
+only when TTS is available.

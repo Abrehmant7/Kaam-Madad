@@ -10,6 +10,8 @@ interface AudioButtonProps {
   src?: string;
   /** Or a handler that produces/plays audio (e.g. a TTS adapter in M3). */
   onPlay?: () => Promise<void> | void;
+  /** Or a loader that returns a playable URL on first play (e.g. server-synthesised instructions). */
+  resolveSrc?: () => Promise<string>;
 }
 
 type PlayState = "idle" | "loading" | "playing" | "error";
@@ -21,14 +23,14 @@ type PlayState = "idle" | "loading" | "playing" | "error";
  * promises speech it cannot produce. Failures show a readable fallback message
  * and the button stays available for a retry.
  */
-export function AudioButton({ label, src, onPlay }: AudioButtonProps) {
+export function AudioButton({ label, src, onPlay, resolveSrc }: AudioButtonProps) {
   const { t } = useI18n();
   const [state, setState] = useState<PlayState>("idle");
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => () => audioRef.current?.pause(), []);
 
-  if (!src && !onPlay) return null;
+  if (!src && !onPlay && !resolveSrc) return null;
 
   async function play() {
     if (state === "playing" && audioRef.current) {
@@ -44,7 +46,7 @@ export function AudioButton({ label, src, onPlay }: AudioButtonProps) {
         setState("idle");
         return;
       }
-      const audio = audioRef.current ?? new Audio(src);
+      const audio = audioRef.current ?? new Audio(src ?? (resolveSrc ? await resolveSrc() : undefined));
       audioRef.current = audio;
       audio.onended = () => setState("idle");
       audio.onerror = () => setState("error");
