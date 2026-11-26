@@ -10,11 +10,10 @@ using Urdu text, spoken instructions, recognisable icons and guided choices.
 
 Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 
-> **Status: Modules M1–M5 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
-> onboarding and identity check; customer job requests). Workers finish a three-screen onboarding and can scan a
-> synthetic DEMO card with real **Tesseract OCR** for a **simulated** demo-registry check. Customers describe a
-> job by voice or text, review and confirm it, and reopen it from **My requests**. Recommendations, invitations,
-> chat, quotations and bookings are **not** implemented yet.
+> **Status: Modules M1–M6 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
+> onboarding and identity check; customer job requests; recommendations and invitations). Customers describe a
+> job, confirm it, see matching workers with reasons, and invite one; the worker sees the invitation and can
+> decline. Chat, quotations, bookings and reviews are **not** implemented yet.
 > See [docs/progress.md](docs/progress.md).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
@@ -188,7 +187,8 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 | NADRA / identity verification | **Not integrated** (needs authorised access). Demo deployments use a **simulated** fictional registry; demo approvals never count in live mode. |
 | Speech-to-text, interpretation, text-to-speech | **Implemented** (M3): Gemini (speech-to-text, interpretation); Azure AI Speech or ElevenLabs `eleven_v3` (Urdu read-aloud, selectable). Need keys in `.env`; without them development uses labelled fixtures and production reports "not configured". Not yet verified with live keys — see [Live check](#live-check-with-real-providers). |
 | Customer job requests | **Implemented** (M5): voice/text description, review, confirmation, private photos |
-| Recommendations, chat, quotations, bookings, reviews, reports | Not implemented (M6–M10) |
+| Recommendations and invitations | **Implemented** (M6): rule-based matching with reasons, one active invitation per request |
+| Chat, quotations, bookings, reviews, reports | Not implemented (M7–M10) |
 
 ## 6. Voice and AI (M3)
 
@@ -401,7 +401,45 @@ real providers, see §6.
 - **Confirming:** confirming twice keeps **one** confirmed request, and a failed confirmation leaves the draft
   as it was.
 
-## 9. Checks and tests
+## 9. Recommendations and invitations (M6)
+
+After pulling, from `backend/`: `python manage.py migrate` (adds the `invitations` app), then
+`python manage.py seed_demo_workers`.
+
+The seed command creates or resets four **fictional** demo workers, all with the password `Demo-Worker-2026`
+(demo mode only):
+
+| Phone | Trade | Main speciality | Areas | Notes |
+|---|---|---|---|---|
+| 03009990101 | Electrician | Ceiling fan installation | G-9, G-10, F-8 | Recommended for fan jobs in G-9 |
+| 03009990102 | Electrician | Switch and socket repair | G-9, I-8 | Offers fan installation, ranked after main-speciality matches |
+| 03009990103 | Plumber | Leak repair | G-10, Saddar (Rawalpindi) | |
+| 03009990104 | Electrician | Ceiling fan installation | G-9 | **Paused** (not accepting requests), so never listed |
+
+### Demo: invite a worker
+
+1. **As a customer**, create and confirm a request (§8). For example: electrician, ceiling fan installation, G-9.
+2. On the confirmed request, tap **Find a worker / کاریگر تلاش کریں**. The list shows matching workers, why each
+   one matches (listed speciality, offers the work, serves your area), a clearly labelled demo identity check,
+   and "new worker".
+3. Tap **Invite** on a card to see **exactly what the worker will see** and what is not shared (address, access
+   instructions, photos, recording, phone).
+   - If the description looks like it contains a phone number or an address, you are warned and can edit it
+     before sending.
+   - Tap **Send invitation**. The page shows the open invitation and whether the worker has seen it. A refresh
+     keeps that state.
+4. **As the worker**, in another browser or a private window, log in as `03009990101` / `Demo-Worker-2026`.
+   - The dashboard shows **Job invitations**. Open one to see the work, area, requested time and description,
+     and **read it aloud**.
+   - **Decline**, optionally with a reason.
+5. **Back as the customer**, refresh. The invitation is declined (under history) and the slot is free: invite
+   another worker. **Withdraw invitation** also frees the slot. Inviting again always creates a new invitation.
+
+Rules: one open invitation per request; a different worker cannot be invited while one is open
+(`invitation_already_active`); a worker who paused or lost eligibility after being listed cannot be invited.
+An invitation does **not** book the worker or reserve time.
+
+## 10. Checks and tests
 
 ```bash
 # Backend (from backend/, venv active) — runs against a real PostgreSQL test database
@@ -422,7 +460,7 @@ curl http://localhost:5173/api/v1/health/live/    # {"status":"ok"}
 curl http://localhost:5173/api/v1/health/ready/   # {"status":"ok","checks":{"database":"ok"}} or 503
 ```
 
-## 10. Production-like local run (same origin)
+## 11. Production-like local run (same origin)
 
 Builds the frontend and lets Django serve everything on one port, with production settings
 (HTTPS redirect disabled only because this local test uses plain HTTP):

@@ -1,7 +1,7 @@
 # Kaam Madad — API Contracts
 
 All endpoints are under `/api/v1/`, return JSON, and are served from the same origin as the web app.
-Implemented through **M5**. Planned endpoint families for later modules are listed in
+Implemented through **M6**. Planned endpoint families for later modules are listed in
 [requirements.md §10](requirements.md#10-api-contracts-and-screen-inventory) and are **not** implemented.
 
 ## Conventions
@@ -423,3 +423,106 @@ the shareable view without the address, access notes, photos or original audio.
 
 Speech: `POST /audio/synthesise/` now removes invisible direction marks (LRI/PDI, LRM/RLM), which the UI adds to
 keep times in order inside Urdu text, before the text reaches the provider.
+
+## Recommendations and invitations (M6)
+
+**Customer endpoints** live under `/jobs/{id}/`.
+- Only the request owner can use them: other customers get `404`, and workers get `403 customer_role_required`.
+- The request must be **confirmed** (`409 request_not_confirmed` otherwise).
+
+**Worker endpoints** live under `/invitations/`. They return only invitations addressed to the signed-in
+worker; anything else is `404`, and customers get `403 worker_role_required`.
+
+### Recommendations (customer)
+
+`GET /jobs/{id}/recommendations/` →
+
+```json
+{"request": {"trade": "electrician", "services": ["elec_fan_install"], "city": "islamabad", "area": "isb-g-9",
+             "window_start": "…Z", "window_end": "…Z"},
+ "shared_preview": {"description": "…", "trade": "…", "services": […], "services_excluded": […], "city": "…",
+                    "area": "…", "window_start": "…Z", "window_end": "…Z", "budget_preference_pkr": "3500.00",
+                    "has_photos": true},
+ "privacy_warnings": ["phone_number", "address"],
+ "workers": [{"worker_id": "<opaque profile UUID>", "display_label": null, "trade": "electrician",
+              "services_matched": ["elec_fan_install"], "specialities_matched": ["elec_fan_install"],
+              "serves_selected_area": true, "verification": {"status": "demo_approved", "simulated": true},
+              "is_new": true, "previous_invitation": null,
+              "reasons": [{"code": "speciality", "services": ["elec_fan_install"]},
+                          {"code": "serves_area", "area": "isb-g-9"}]}],
+ "active_invitation": null}
+```
+
+**Matching.** A worker is listed only if all of these hold:
+1. The account is an active worker account.
+2. The profile trade equals the requested trade.
+3. The requested area is one of the worker's service areas.
+4. The worker offers **every** requested service and lists none of them as not offered.
+5. `worker_eligibility(user, profile).receives_requests` is true. That covers a complete profile, an identity
+   status accepted here (demo approval counts in demo mode only) and the worker's accepting-requests choice.
+
+**Ranking.** Workers with more requested services among their main specialities come first. Ties are broken by
+`worker_id` (stable, and not tied to sign-up time). At most 20 workers are returned.
+
+**Reasons.** Each card explains the match with stored facts:
+- `speciality`: the requested services that are listed main specialities.
+- `offers`: the requested services the worker offers that are not main specialities.
+- `serves_area`: the selected area is one the worker serves.
+
+Every worker has `is_new: true` because completed jobs and reviews arrive in M9. Cards never include a name,
+phone number, CNIC, registry data or addresses, and no distance is shown.
+
+**Before sending.**
+- `shared_preview` is exactly what a worker will receive: `matching_summary(job)` without its internal ID.
+- `privacy_warnings` flags free text that looks like a phone number or an address.
+- While no invitation is active, the description can be corrected with
+  `PATCH /jobs/{id}/shared-description/` `{"description"}`. It returns the Job plus `privacy_warnings`, and is
+  `409 invitation_already_active` otherwise.
+
+### Invitations (customer)
+
+- **Send:** `POST /jobs/{id}/invitations/` `{"worker_id"}`.
+  - `201` with a new invitation (`created: true`), or `200` with the existing one when the same worker is
+    already invited (`created: false`).
+  - `409 invitation_already_active` (`details.invitation_id`) when a different worker is already invited.
+  - `400 worker_id: worker_not_available` when the worker no longer matches or is no longer eligible. Both are
+    re-checked when sending, even if the worker was listed earlier.
+- **History:** `GET /jobs/{id}/invitations/` → `{"results": [Invitation]}`, newest first.
+- **Withdraw:** `POST /jobs/{id}/invitations/{invitation_id}/withdraw/` → the Invitation.
+  - Idempotent for an already-withdrawn invitation.
+  - `409 invitation_closed` if the worker already declined.
+
+```json
+{"id": "…", "status": "active", "worker": {"worker_id": "…", "display_label": null, "trade": "electrician"},
+ "created_at": "…", "seen_at": null, "closed_at": null, "decline_reason": null}
+```
+
+### Invitations (worker)
+
+- **Inbox:** `GET /invitations/?status=active|declined|withdrawn&page=…` → paginated, newest first.
+- **Open:** `GET /invitations/{id}/` → the WorkerInvitation; the first open sets `seen_at`.
+- **Decline:** `POST /invitations/{id}/decline/` `{"reason"?: "not_available"|"too_far"|"not_my_work"|"other"}` →
+  the WorkerInvitation.
+  - Idempotent for an already-declined invitation.
+  - `409 invitation_closed` if the customer withdrew it.
+
+```json
+{"id": "…", "status": "active", "created_at": "…", "seen_at": "…", "closed_at": null, "decline_reason": null,
+ "job": {"description": "…", "trade": "…", "services": […], "services_excluded": […], "city": "…", "area": "…",
+         "window_start": "…Z", "window_end": "…Z", "budget_preference_pkr": "3500.00", "has_photos": true}}
+```
+
+**What workers never receive:**
+- the exact address or access notes;
+- photos or the original recording or transcript;
+- the customer's identity or phone number;
+- the job ID.
+
+Workers still cannot open `/jobs/…` (`403`).
+
+**Rules:**
+- At most **one active invitation per request**. This is enforced by a PostgreSQL partial unique index, plus a
+  row lock on the request while sending.
+- Declining or withdrawing frees the slot. Inviting again, even the same worker, creates a **new** invitation ID.
+- Closed invitations stay as history.
+- An invitation never reserves time or confirms a booking (M8).

@@ -5,6 +5,7 @@ import { AppShell } from "./components/layout/AppShell";
 import { CatalogPreviewPage } from "./pages/CatalogPreviewPage";
 import { CustomerDashboardPage } from "./pages/customer/CustomerDashboardPage";
 import { DescribeJobPage } from "./pages/customer/DescribeJobPage";
+import { FindWorkersPage } from "./pages/customer/FindWorkersPage";
 import { JobDetailPage } from "./pages/customer/JobDetailPage";
 import { JobDetailsPage } from "./pages/customer/JobDetailsPage";
 import { JobReviewPage } from "./pages/customer/JobReviewPage";
@@ -20,6 +21,7 @@ import { StartPage } from "./pages/StartPage";
 import { OnboardingAreasPage } from "./pages/worker/OnboardingAreasPage";
 import { OnboardingWorkPage } from "./pages/worker/OnboardingWorkPage";
 import { VerifyIdentityPage } from "./pages/worker/VerifyIdentityPage";
+import { WorkerInvitationPage } from "./pages/worker/WorkerInvitationPage";
 import { WorkerDashboardPage } from "./pages/worker/WorkerDashboardPage";
 
 // Feature modules add their routes here (worker onboarding, requests, bookings…).
@@ -55,6 +57,7 @@ export const routes: RouteObject[] = [
           { path: "setup/work", element: <OnboardingWorkPage /> },
           { path: "setup/areas", element: <OnboardingAreasPage /> },
           { path: "verify", element: <VerifyIdentityPage /> },
+          { path: "invitations/:id", element: <WorkerInvitationPage /> },
         ],
       },
       {
@@ -66,6 +69,7 @@ export const routes: RouteObject[] = [
           { path: "requests/:id", element: <JobDetailPage /> },
           { path: "requests/:id/details", element: <JobDetailsPage /> },
           { path: "requests/:id/review", element: <JobReviewPage /> },
+          { path: "requests/:id/workers", element: <FindWorkersPage /> },
         ],
       },
       { path: "*", element: <NotFoundPage /> },

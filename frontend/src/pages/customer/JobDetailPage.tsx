@@ -1,4 +1,4 @@
-import { ArrowLeft, Pencil } from "lucide-react";
+import { ArrowLeft, Pencil, Users } from "lucide-react";
 import { useSearchParams, useParams } from "react-router";
 
 import * as jobsApi from "../../api/jobs";
@@ -36,7 +36,7 @@ export function JobDetailPage() {
 
       {confirmed ? (
         <Alert tone="success" title={params.get("confirmed") ? t("jobs.detail.justConfirmed") : undefined}>
-          <p>{t("jobs.detail.confirmedNote")}</p>
+          <p>{t("jobs.detail.confirmedNoteM6")}</p>
           {job.confirmed_at && (
             <p className="text-sm">{t("jobs.detail.confirmedAt", { date: formatDate(job.confirmed_at, language), time: isolateLtr(formatTime(job.confirmed_at, language)) })}</p>
           )}
@@ -51,6 +51,11 @@ export function JobDetailPage() {
       <OriginalInput job={job} />
 
       <div className="grid gap-2">
+        {confirmed && (
+          <ButtonLink to={`/customer/requests/${job.id}/workers`} fullWidth icon={<Users className="size-5" aria-hidden />}>
+            {t("rec.cta")}
+          </ButtonLink>
+        )}
         {!confirmed && (
           <ButtonLink to={`/customer/requests/${job.id}/details`} fullWidth icon={<Pencil className="size-5" aria-hidden />}>
             {t("jobs.list.continue")}

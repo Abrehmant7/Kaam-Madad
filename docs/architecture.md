@@ -541,3 +541,59 @@ window. M6 should:
 - match on these fields together with `apps.workers.eligibility.worker_eligibility(...).receives_requests`;
 - read requests through `matching_summary`;
 - add invitations without changing the confirmed request.
+
+## 12. Module M6 — recommendations and targeted invitations
+
+API contracts: [api.md § Recommendations and invitations](api.md#recommendations-and-invitations-m6).
+
+### Matching (`apps/invitations/matching.py`)
+
+- **Input:** `matching_summary(job)` only, i.e. the customer-confirmed trade, services, area and window. M5
+  already mapped words to catalog choices, so M6 makes **no AI call** (REC-02 "rules first").
+- **Filtering:**
+  - A database pre-filter on trade, area and an active worker account.
+  - `match_profile()` then requires every requested service to be offered, and none of them to be listed as
+    not offered.
+  - Finally `worker_eligibility(...).receives_requests` must be true. It is the single source for profile
+    completeness, identity status (demo approval only in demo mode), account state and the worker's
+    accepting-requests choice.
+- **Ranking:**
+  - Key: `(-|requested ∩ main specialities|, worker_id)`.
+  - The tie-breaker is the profile's random UUID, so the order is stable across calls and not biased towards
+    older or newer accounts. New workers stay eligible.
+  - Reviews, completed-job history, overlapping reservations and approximate distance are deferred to M8/M9,
+    and no distance is shown.
+- **Explanations:** each card lists stored facts only (`speciality`, `offers`, `serves_area`). It also shows
+  the identity status (labelled "demo only" when simulated) and "new: no completed jobs or reviews yet".
+  Services and specialities are labelled as the worker's own declarations.
+
+### Invitations (`apps/invitations`)
+
+- **`Invitation`:**
+  - Fields: UUID, `job`, `worker_profile`, `status` (`active`/`declined`/`withdrawn`), `shared_summary`,
+    `created_at`, `seen_at`, `closed_at`, `decline_reason`.
+  - `shared_summary` is the `matching_summary(job)` taken at send time. It is what the worker sees, and an audit
+    of what was shared.
+- **One active invitation per request (JOB-06):**
+  - The database enforces it with the partial unique index `inv_one_active_per_job` (`status='active'`).
+  - `send_invitation()` first takes `SELECT … FOR UPDATE` on the job, so concurrent sends queue up.
+  - A send to the same worker returns the existing invitation. A send to a different worker is
+    `409 invitation_already_active`. An `IntegrityError` backstop maps to the same answers.
+  - `TransactionTestCase` threads on PostgreSQL prove it: four racing sends give one active invitation, and
+    three racing retries give one invitation.
+- **Re-check on send:** the target must still match and still be eligible
+  (`400 worker_id: worker_not_available`).
+- **Lifecycle:** decline (worker) or withdraw (customer) close the invitation and free the slot. Closed rows are
+  history, and re-inviting creates a new ID.
+- **Description edit:** `PATCH /jobs/{id}/shared-description/` lets the customer edit the free-text description
+  of a confirmed request only while no invitation is active. `privacy_warnings()` (`apps/jobs/summary.py`)
+  flags phone-number-like and address-like text in Urdu and English, as a reminder rather than a guarantee.
+- **Privacy:** worker endpoints return only `shared_summary` without the job ID. M5's owner-only job and photo
+  endpoints are unchanged.
+- **Demo data:** `seed_demo_workers` (demo mode only) creates four fictional workers for rehearsals.
+
+### M7 hand-off
+
+An active `Invitation` (stable UUID) ties one confirmed job to one worker. M7 should hang the private
+conversation and quotations off `Invitation.id`. It should close sending when the invitation is declined or
+withdrawn (JOB-06), and re-check `worker_eligibility` before anything that commits either party.

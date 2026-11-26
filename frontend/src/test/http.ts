@@ -152,5 +152,6 @@ export function workerHandlers(dashboard: Dashboard = makeDashboard()): Record<s
     "GET /api/v1/catalog/service-tags/": jsonResponse(page(SERVICES)),
     "GET /api/v1/catalog/areas/": jsonResponse(page(AREAS)),
     "GET /api/v1/catalog/trades/electrician/speciality-questions/": jsonResponse(QUESTIONS),
+    "GET /api/v1/invitations/": jsonResponse(page([])),
   };
 }

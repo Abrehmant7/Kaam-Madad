@@ -15,14 +15,93 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M3 Audio and AI adapters | ✅ Complete (25 Nov 2026) — fixture-verified; live keys not yet tested. 26 Nov: ElevenLabs read-aloud added |
 | M4 Worker onboarding and identity check | ✅ Complete (27 Nov 2026) — real Tesseract OCR verified on synthetic cards; registry simulated |
 | M5 Customer and job requests | ✅ Complete (27 Nov 2026) — fixture and live voice checks recorded |
-| M6 Recommendations and invitations | ⬜ Next |
-| M7 Communication and agreements | ⬜ Not started |
+| M6 Recommendations and invitations | ✅ Complete (27 Nov 2026) |
+| M7 Communication and agreements | ⬜ Next |
 | M8 Booking and arrival | ⬜ Not started |
 | M9 Completion and feedback | ⬜ Not started |
 | M10 Reporting and moderation | ⬜ Not started |
 | M11 Integration and delivery | ⬜ Not started |
 
 ---
+
+## M6 Recommendations and invitations — complete (27 Nov 2026)
+
+### Delivered
+
+- [x] `GET /jobs/{id}/recommendations/` (owner only, confirmed requests). It matches on trade, area, coverage of
+  all requested services and no explicit exclusion, plus `worker_eligibility(...).receives_requests`. Ranked by
+  requested services among main specialities, with a stable `worker_id` tie-breaker. It returns reasons from
+  stored facts and minimal public cards (no name, phone, CNIC, registry data or addresses).
+- [x] **`Invitation` model** (migration `invitations.0001`):
+  - Statuses: active / declined / withdrawn.
+  - Stable UUID, history kept, `shared_summary` = `matching_summary(job)` at send time.
+  - One active invitation per request: PostgreSQL partial unique index plus a row lock on the request. A retry
+    to the same worker returns the same invitation; a different worker gets `409`.
+  - The worker is re-checked when sending.
+- [x] **Customer:**
+  - **Find a worker** on the confirmed request; cards with reasons; empty state.
+  - A preview of exactly what will be shared and what is not, with phone and address warnings and a
+    description edit before sending.
+  - Send, see status and "seen", withdraw, history. State survives a refresh.
+- [x] **Worker:**
+  - A **Job invitations** inbox on the dashboard (own invitations only).
+  - The invitation page with task, area, requested window, description and budget preference, plus read-aloud
+    (shareable fields only).
+  - Decline with an optional reason.
+- [x] `seed_demo_workers` (fictional, demo mode only) for rehearsals.
+
+### Checks (27 Nov 2026)
+
+| Check | Result |
+|---|---|
+| Backend tests (real PostgreSQL) | ✅ **277 passed**: 18 new for M6, including **2 real concurrency tests** (threads, separate connections): 4 racing sends → 1 active; 3 racing retries → 1 invitation |
+| `check`, `makemigrations --check` | ✅ No issues, no pending migrations |
+| Frontend typecheck / tests / build | ✅ No errors / **71 passed** / built |
+
+Backend tests cover:
+- Eligible workers appear in a stable order with the right reasons.
+- Paused, unapproved (none or in progress), wrong-area, wrong-trade, explicitly excluded and inactive workers
+  stay out, and demo approval is ignored in live mode.
+- A worker who becomes ineligible after being listed (paused or suspended) cannot be invited.
+- Decline and withdraw free the slot, and re-inviting gives a new ID.
+- Unrelated workers get 404; customers get 403 on worker endpoints, and workers 403 on jobs.
+- Worker payloads contain only the 10 shareable fields.
+- The description edit and privacy warnings work.
+
+### Two-browser walk-through (two separate Chrome sessions at 360 px, real backend, fixture TTS)
+
+1. **Customer (Urdu)** with a confirmed G-9 fan installation request opened **Find a worker**.
+   - Five matching demo-approved electricians: four with fan installation as their main speciality, in stable
+     `worker_id` order, then demo worker 03009990102, whose main speciality is something else. The paused demo
+     worker was absent.
+   - The preview flagged the phone number typed in the description; the customer removed it and sent to worker
+     03009990101. After a refresh the state was unchanged.
+2. **Worker A (second browser)** logged in and found it in the **Job invitations** inbox.
+   - Opened it: the description without the phone number, and no address or access notes. The API exposed only
+     the 10 shareable fields.
+   - Read it aloud, then declined with "too far". It stayed declined after a refresh.
+   - The customer, after a refresh, saw "Seen by the worker" and then "Declined", and the earlier decline was
+     noted on the card.
+3. **Slot rules:**
+   - Send to B → `201`; retry B → `200` (same invitation); send A while B is active → `409 invitation_already_active`.
+   - Withdraw B, then re-invite A → `201` with a **new** invitation ID.
+   - Worker A's inbox then showed the new active invitation plus its history.
+4. **Other accounts:** worker B got `404` on A's invitation (view and decline) and `403` on the customer's job.
+   After worker B paused requests, inviting B gave `400 worker_not_available` and B dropped out of the list.
+5. **Layouts:** Urdu and English; no horizontal overflow.
+
+**Fixed:** `matching_summary` formatted the same instant differently depending on how the datetime was loaded.
+It now always uses UTC `…Z`. In the preview, warnings now refer to the saved description, so they no longer
+linger while the customer edits it.
+
+### Known limitations
+
+- **No display name:** there is no approved public display name, so cards show the trade plus a short reference
+  (e.g. "Electrician · ref. A7F3").
+- **Basic matching:** all-services coverage only. There is no distance, availability, review or completed-job
+  history yet (M8/M9), so every worker is shown as new.
+- **Inbox updates:** the worker inbox refreshes on load. There are no push notifications (polling or real-time
+  updates come later).
 
 ## M5 Customer job requests — complete (27 Nov 2026)
 
