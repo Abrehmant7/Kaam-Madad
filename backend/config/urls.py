@@ -10,6 +10,7 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 
 from apps.core.config_view import ClientConfigView
+from apps.invitations import urls as invitation_urls
 from apps.voice import urls as voice_urls
 from apps.workers import urls as worker_urls
 from apps.core.views import api_not_found, spa_index
@@ -29,6 +30,8 @@ api_v1_patterns = [
     path("workers/", include(worker_urls.worker_patterns)),
     path("identity/", include(worker_urls.identity_patterns)),
     path("jobs/", include("apps.jobs.urls")),
+    path("jobs/", include(invitation_urls.customer_patterns)),
+    path("invitations/", include(invitation_urls.worker_patterns)),
 ]
 
 urlpatterns = [

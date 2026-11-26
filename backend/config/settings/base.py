@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "apps.voice",
     "apps.workers",
     "apps.jobs",
+    "apps.invitations",
 ]
 
 # --------------------------------------------------------------------------
@@ -307,6 +308,7 @@ API_THROTTLE_RATES = {
     "instruction_audio_ip": "120/hour",
     "jobs_user": "300/hour",
     "job_photo_user": "60/hour",
+    "invitation_user": "120/hour",
 }
 
 # --------------------------------------------------------------------------
