@@ -85,7 +85,7 @@ class SpecialityQuestionSerializer(serializers.ModelSerializer):
 
     def get_selection(self, obj):
         return {
-            "multiple": True,
+            "multiple": obj.max_selections != 1,
             "min": obj.min_selections,
             "max": obj.max_selections,
             "choices_from": obj.choice_source,

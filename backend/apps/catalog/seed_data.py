@@ -90,13 +90,13 @@ SPECIALITY_QUESTIONS = [
     },
     {
         "code": "primary_specialities",
-        "prompt_en": "Which of these are your main specialities?",
+        "prompt_en": "Which of these is your main speciality?",
         "prompt_ur": "ان میں سے آپ کی خاص مہارت کون سی ہے؟",
-        "help_en": "Choose 1 to 3 of the services you offer.",
-        "help_ur": "اپنی فراہم کردہ خدمات میں سے 1 سے 3 منتخب کریں۔",
+        "help_en": "Choose one of the services you offer.",
+        "help_ur": "اپنی فراہم کردہ خدمات میں سے ایک منتخب کریں۔",
         "choice_source": "services_offered",
         "min_selections": 1,
-        "max_selections": 3,
+        "max_selections": 1,
         "sort_order": 20,
     },
     {

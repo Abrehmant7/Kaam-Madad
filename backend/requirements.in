@@ -10,3 +10,4 @@ whitenoise>=6.12,<7              # Serves the built frontend + static files from
 python-dotenv>=1.2,<2            # Loads the local .env file in development
 httpx>=0.28,<1                   # HTTP client for AI/audio providers (explicit timeouts, mockable in tests)
 mutagen>=1.47,<2                 # Pure-Python audio parsing: verifies format and duration server-side
+Pillow>=12,<14                   # CNIC photos: validate type/dimensions, orientation and contrast before Tesseract OCR

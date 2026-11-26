@@ -12,6 +12,7 @@ from django.conf import settings
 from config.env import DEPLOYMENT_MODE_DEMO
 
 from .errors import ProviderNotConfigured
+from .identity import CnicOcrProvider, TesseractCnicOcr, UnconfiguredCnicOcr
 from .interpretation import FixtureInterpretation, GeminiInterpretation, InterpretationProvider, UnconfiguredInterpretation
 from .speech_to_text import FixtureSpeechToText, GeminiSpeechToText, SpeechToTextProvider, UnconfiguredSpeechToText
 from .text_to_speech import (
@@ -58,6 +59,13 @@ def text_to_speech() -> TextToSpeechProvider:
     return UnconfiguredTextToSpeech()
 
 
+def cnic_ocr() -> CnicOcrProvider:
+    # Real local OCR only: there is no simulated OCR option (M4).
+    if settings.CNIC_OCR_PROVIDER == "tesseract":
+        return TesseractCnicOcr()
+    return UnconfiguredCnicOcr()
+
+
 def _status(choice: str, factory) -> dict:
     try:
         provider = factory()
@@ -73,4 +81,5 @@ def status() -> dict:
         "speech_to_text": _status(settings.SPEECH_TO_TEXT_PROVIDER, speech_to_text),
         "interpretation": _status(settings.INTERPRETATION_PROVIDER, interpretation),
         "text_to_speech": _status(settings.TEXT_TO_SPEECH_PROVIDER, text_to_speech),
+        "cnic_ocr": _status(settings.CNIC_OCR_PROVIDER, cnic_ocr),
     }

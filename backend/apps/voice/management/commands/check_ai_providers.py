@@ -2,11 +2,14 @@
 
     python manage.py check_ai_providers --audio path/to/sample.wav [--language ur]
     python manage.py check_ai_providers --only text_to_speech --save-speech speech.mp3
+    python manage.py check_ai_providers --only cnic_ocr --cnic-image ../docs/demo/cnic/demo-card-bilal-ahmed.png
 
 - Speech-to-text runs only with --audio (any supported format, ≤ 60 s, ≤ 10 MB).
 - Interpretation uses the transcript (or a built-in fictional Urdu sample).
 - Text-to-speech reads --speak (default: a fictional Urdu sentence with English trade terms),
   checks that real audio came back, and with --save-speech writes it to a file to listen to.
+- CNIC OCR runs the configured OCR provider (Tesseract on this host) on each --cnic-image and prints
+  the extracted name and the MASKED number. Use the synthetic DEMO cards in docs/demo/cnic/.
 Each step reports OK, or the error code and reason (not configured / limit / unavailable / invalid output).
 Use fictional speech and text only — never real CNIC numbers or personal details.
 """
@@ -26,7 +29,7 @@ from apps.voice.audio import inspect_audio
 
 SAMPLE_TEXT = "میرا نام احمد ہے۔ میں الیکٹریشن ہوں۔ میں پنکھے لگاتا ہوں لیکن motor rewinding نہیں کرتا۔"
 SPEECH_SAMPLE = "احمد صاحب کل شام G-9 میں دو پنکھے لگائیں گے۔ AC کی service نہیں ہو گی۔"
-STEPS = ("speech_to_text", "interpretation", "text_to_speech")
+STEPS = ("speech_to_text", "interpretation", "text_to_speech", "cnic_ocr")
 
 
 class Command(BaseCommand):
@@ -39,13 +42,14 @@ class Command(BaseCommand):
         parser.add_argument("--speak", default=SPEECH_SAMPLE, help="Fictional text to read aloud.")
         parser.add_argument("--speak-language", default="ur", choices=["ur", "en"])
         parser.add_argument("--save-speech", help="Write the synthesised audio to this file to listen to it.")
+        parser.add_argument("--cnic-image", action="append", default=[], help="Synthetic card image for the OCR step (repeatable).")
 
     def report(self, step: str, ok: bool, detail: str) -> None:
         style = self.style.SUCCESS if ok else self.style.ERROR
         self.stdout.write(style(f"[{'OK' if ok else 'FAIL'}] {step}: {detail}"))
 
     def handle(self, *args, audio=None, language="ur", only=None, speak=SPEECH_SAMPLE, speak_language="ur",
-               save_speech=None, **options):
+               save_speech=None, cnic_image=(), **options):
         steps = (only,) if only else STEPS
         if len(speak) > settings.VOICE_LIMITS["MAX_SYNTHESIS_CHARS"]:
             raise CommandError(f"--speak is longer than {settings.VOICE_LIMITS['MAX_SYNTHESIS_CHARS']} characters.")
@@ -57,6 +61,39 @@ class Command(BaseCommand):
             self.check_interpretation(text)
         if "text_to_speech" in steps:
             self.check_text_to_speech(speak, speak_language, save_speech)
+        if "cnic_ocr" in steps:
+            self.check_cnic_ocr(cnic_image)
+
+    def check_cnic_ocr(self, images) -> None:
+        import time
+
+        from apps.workers.identity import inspect_image, mask_cnic
+
+        if not images:
+            self.stdout.write("[SKIP] cnic_ocr: pass --cnic-image <file> (e.g. docs/demo/cnic/*.png) to test OCR.")
+            return
+        for image in images:
+            path = Path(image)
+            if not path.is_file():
+                raise CommandError(f"No such file: {path}")
+            data = path.read_bytes()
+            started = time.monotonic()
+            try:
+                mime_type, width, height = inspect_image(data)
+                provider = registry.cnic_ocr()
+                result = provider.extract(image=data, mime_type=mime_type)
+            except ProviderError as exc:
+                self.report("cnic_ocr", False, f"{path.name}: {settings.CNIC_OCR_PROVIDER}: {exc.code} ({exc.reason})")
+                continue
+            except Exception as exc:  # noqa: BLE001 — image validation errors carry a code
+                self.report("cnic_ocr", False, f"{path.name}: {getattr(exc, 'default_code', type(exc).__name__)}")
+                continue
+            number = mask_cnic(result.cnic_number) if result.cnic_number else None
+            self.report(
+                "cnic_ocr", result.status != "unreadable",
+                f"{path.name}: {result.provider} [{result.engine}] {width}x{height} status={result.status} "
+                f"name={result.name!r} number={number} rotation={result.rotation} {time.monotonic() - started:.1f}s",
+            )
 
     def check_speech_to_text(self, audio: str | None, language: str) -> str | None:
         if not audio:

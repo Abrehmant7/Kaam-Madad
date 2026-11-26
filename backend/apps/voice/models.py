@@ -148,3 +148,30 @@ class SpeechSynthesis(models.Model):
                 fields=["owner", "text_hash", "language", "provider", "voice"], name="voice_synthesis_reuse_key"
             ),
         ]
+
+
+def instruction_upload_path(instance, filename: str) -> str:
+    return _random_path("instructions", filename)
+
+
+class InstructionAudio(models.Model):
+    """Cached speech for a FIXED instruction (apps.voice.instructions). Public content, no owner."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    key = models.CharField(max_length=64)
+    language = models.CharField(max_length=8)
+    text_hash = models.CharField(max_length=64)
+    provider = models.CharField(max_length=32)
+    voice = models.CharField(max_length=64)
+    simulated = models.BooleanField(default=False)
+    file = models.FileField(upload_to=instruction_upload_path, max_length=200)
+    mime_type = models.CharField(max_length=32)
+    size_bytes = models.PositiveIntegerField()
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["key", "language", "text_hash", "provider", "voice"], name="voice_instruction_audio_key"
+            ),
+        ]

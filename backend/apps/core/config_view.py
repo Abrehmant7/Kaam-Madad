@@ -20,12 +20,14 @@ class ClientConfigView(APIView):
     def get(self, request):
         from apps.accounts.phone_verification import provider_status
         from apps.providers import registry
+        from apps.workers.identity import provider_status as identity_status
 
         return Response(
             {
                 "deployment_mode": settings.DEPLOYMENT_MODE,
                 "phone_verification": provider_status(),
                 "ai": registry.status(),
+                "identity_verification": identity_status(),
                 "voice_limits": {
                     "max_audio_bytes": settings.VOICE_LIMITS["MAX_AUDIO_BYTES"],
                     "max_audio_seconds": settings.VOICE_LIMITS["MAX_AUDIO_SECONDS"],

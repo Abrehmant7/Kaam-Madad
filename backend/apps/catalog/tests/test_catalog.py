@@ -118,7 +118,8 @@ class CatalogApiTests(TestCase):
         first = body["questions"][0]
         self.assertEqual(first["prompt"]["ur"], "آپ الیکٹریشن کی کون سی خدمات فراہم کرتے ہیں؟")
         self.assertEqual(first["prompt"]["en"], "Which Electrician services do you offer?")
-        self.assertEqual(body["questions"][1]["selection"], {"multiple": True, "min": 1, "max": 3, "choices_from": "services_offered"})
+        # One main speciality (M4).
+        self.assertEqual(body["questions"][1]["selection"], {"multiple": False, "min": 1, "max": 1, "choices_from": "services_offered"})
         self.assertEqual(len(body["choices"]), 8)
         self.assertTrue(all(c["trade"] == "electrician" for c in body["choices"]))
         self.assertEqual({r["type"] for r in body["rules"]}, {"disjoint", "subset"})

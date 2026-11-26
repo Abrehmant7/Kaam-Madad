@@ -67,6 +67,8 @@ PHONE_PROVIDER_UNCONFIGURED = "unconfigured"
 
 
 AI_PROVIDER_FIXTURE = "fixture"
+# Simulated provider values that only a demo deployment may use (fixture AI/OCR, demo identity registry).
+SIMULATED_PROVIDER_VALUES = {AI_PROVIDER_FIXTURE, "demo_registry"}
 
 
 def check_simulation_allowed(
@@ -80,9 +82,9 @@ def check_simulation_allowed(
             "APP_DEPLOYMENT_MODE=demo. Live deployments must use a real provider or 'unconfigured'."
         )
     for setting_name, value in (ai_providers or {}).items():
-        if value == AI_PROVIDER_FIXTURE and deployment_mode != DEPLOYMENT_MODE_DEMO:
+        if value in SIMULATED_PROVIDER_VALUES and deployment_mode != DEPLOYMENT_MODE_DEMO:
             raise ImproperlyConfigured(
-                f"{setting_name}=fixture (simulated AI results) is only allowed when APP_DEPLOYMENT_MODE=demo. "
+                f"{setting_name}={value} (simulated results) is only allowed when APP_DEPLOYMENT_MODE=demo. "
                 "Live deployments must use a real provider or 'unconfigured'."
             )
 

@@ -7,10 +7,12 @@ synthesized text are never logged. Contracts: docs/api.md.
 
 from __future__ import annotations
 
+import hashlib
 import os
 
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db import IntegrityError, transaction
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -25,13 +27,15 @@ from rest_framework.views import APIView
 from apps.accounts.serializers import StrictFieldsMixin
 from apps.accounts.throttles import ConfigurableRateThrottle
 from apps.core.api.exceptions import ApiError
+from apps.providers import registry
 from apps.providers.errors import ProviderError
 from apps.providers.speech_to_text import LANGUAGE_HINTS
 from apps.providers.text_to_speech import AUDIO_EXTENSIONS, LANGUAGES as SYNTH_LANGUAGES
 
 from . import drafts, services
 from .audio import AudioTooLarge, inspect_audio
-from .models import AudioClip, Interpretation, Purpose, SpeechSynthesis, Transcription
+from .instructions import INSTRUCTIONS
+from .models import AudioClip, InstructionAudio, Interpretation, Purpose, SpeechSynthesis, Transcription
 
 PROVIDER_MESSAGES = {
     "ai_provider_not_configured": "This AI service is not configured on the server.",
@@ -350,3 +354,57 @@ class SynthesisContentView(APIView):
         synthesis = get_object_or_404(SpeechSynthesis, pk=synthesis_id, owner=request.user)
         extension = AUDIO_EXTENSIONS.get(synthesis.mime_type, ".bin")
         return _private_file_response(synthesis.file, synthesis.mime_type, f"speech{extension}")
+
+
+class InstructionAudioThrottle(ConfigurableRateThrottle):
+    scope = "instruction_audio_ip"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class InstructionAudioView(APIView):
+    """GET /api/v1/instructions/{key}/audio/?language=ur — speech for a FIXED instruction.
+
+    Public (the signup screen is before login). Only known keys; the text comes from the server.
+    Header ``X-Audio-Simulated: 1`` marks the fixture tone (not speech).
+    """
+
+    authentication_classes: list = []
+    permission_classes: list = []
+    throttle_classes = [InstructionAudioThrottle]
+
+    def get(self, request, key):
+        language = request.query_params.get("language", "ur")
+        texts = INSTRUCTIONS.get(key)
+        if texts is None or language not in texts:
+            raise ApiError("Unknown instruction.", "not_found", status_code=status.HTTP_404_NOT_FOUND)
+        text = texts[language]
+        text_hash = hashlib.sha256(text.encode()).hexdigest()
+        try:
+            provider = registry.text_to_speech()
+            voice = provider.voice_for(language)
+            audio = InstructionAudio.objects.filter(
+                key=key, language=language, text_hash=text_hash, provider=provider.name, voice=voice
+            ).first()
+            if audio is None:
+                result = provider.synthesize(text=text, language=language)
+                audio = InstructionAudio(
+                    key=key, language=language, text_hash=text_hash, provider=result.provider, voice=result.voice,
+                    simulated=result.simulated, mime_type=result.mime_type, size_bytes=len(result.audio),
+                )
+                audio.file.save(f"instruction{AUDIO_EXTENSIONS.get(result.mime_type, '.bin')}", ContentFile(result.audio), save=False)
+                try:
+                    with transaction.atomic():
+                        audio.save()
+                except IntegrityError:
+                    audio.file.delete(save=False)
+                    audio = InstructionAudio.objects.get(
+                        key=key, language=language, text_hash=text_hash, provider=result.provider, voice=result.voice
+                    )
+        except ProviderError as exc:
+            raise provider_api_error(exc, "text_to_speech") from None
+        response = FileResponse(audio.file.open("rb"), content_type=audio.mime_type)
+        response["Cache-Control"] = "private, max-age=3600"
+        response["X-Audio-Simulated"] = "1" if audio.simulated else "0"
+        return response

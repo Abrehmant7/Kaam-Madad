@@ -525,3 +525,46 @@ class ConfigTests(VoiceApiTestCase):
         self.assertEqual(body["voice_limits"]["max_audio_seconds"], 60)
         for secret in ("secret-test-key-123", "azure-secret-456"):
             self.assertNotIn(secret, response.content.decode())
+
+
+class InstructionAudioTests(VoiceApiTestCase):
+    def test_fixed_instruction_is_synthesised_once_and_public(self):
+        from apps.voice.models import InstructionAudio
+
+        anonymous = APIClient()
+        url = reverse("instruction-audio", args=["signup_password"])
+        first = anonymous.get(url, {"language": "ur"})
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first["X-Audio-Simulated"], "1")
+        self.assertEqual(b"".join(first.streaming_content)[:4], b"RIFF")
+        anonymous.get(url, {"language": "ur"})
+        self.assertEqual(InstructionAudio.objects.count(), 1)
+        self.assertEqual(anonymous.get(url, {"language": "en"}).status_code, 200)
+        self.assertEqual(InstructionAudio.objects.count(), 2)
+
+    def test_only_known_keys_and_languages(self):
+        anonymous = APIClient()
+        self.assertEqual(anonymous.get(reverse("instruction-audio", args=["my-password"])).status_code, 404)
+        self.assertEqual(anonymous.get(reverse("instruction-audio", args=["signup_password"]), {"language": "fr"}).status_code, 404)
+
+    @override_settings(TEXT_TO_SPEECH_PROVIDER="unconfigured")
+    def test_unavailable_speech_is_reported(self):
+        response = APIClient().get(reverse("instruction-audio", args=["onboarding_work"]))
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "ai_provider_not_configured")
+
+
+class InstructionTextSyncTests(TestCase):
+    def test_screens_show_the_same_text_that_is_spoken(self):
+        import json
+
+        from apps.voice.instructions import INSTRUCTIONS
+
+        resources = Path(__file__).resolve().parents[4] / "frontend" / "src" / "i18n" / "resources"
+        if not resources.exists():
+            self.skipTest("frontend sources not present")
+        for language in ("ur", "en"):
+            source = (resources / f"{language}.ts").read_text(encoding="utf-8")
+            for key, texts in INSTRUCTIONS.items():
+                with self.subTest(key=key, language=language):
+                    self.assertIn(f'"instructions.{key}": {json.dumps(texts[language], ensure_ascii=False)}', source)

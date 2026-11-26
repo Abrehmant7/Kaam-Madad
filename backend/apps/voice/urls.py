@@ -16,3 +16,7 @@ interpretation_patterns = [
     path("<uuid:interpretation_id>/", views.InterpretationDetailView.as_view(), name="interpretation"),
     path("<uuid:interpretation_id>/confirm/", views.InterpretationConfirmView.as_view(), name="interpretation-confirm"),
 ]
+
+instruction_patterns = [
+    path("<slug:key>/audio/", views.InstructionAudioView.as_view(), name="instruction-audio"),
+]

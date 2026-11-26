@@ -11,6 +11,7 @@ from django.urls import include, path, re_path
 
 from apps.core.config_view import ClientConfigView
 from apps.voice import urls as voice_urls
+from apps.workers import urls as worker_urls
 from apps.core.views import api_not_found, spa_index
 
 admin.site.site_header = "Kaam Madad staff administration"
@@ -24,6 +25,9 @@ api_v1_patterns = [
     path("catalog/", include("apps.catalog.urls")),
     path("audio/", include(voice_urls.audio_patterns)),
     path("interpretations/", include(voice_urls.interpretation_patterns)),
+    path("instructions/", include(voice_urls.instruction_patterns)),
+    path("workers/", include(worker_urls.worker_patterns)),
+    path("identity/", include(worker_urls.identity_patterns)),
 ]
 
 urlpatterns = [

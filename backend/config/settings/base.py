@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.catalog",
     "apps.voice",
+    "apps.workers",
 ]
 
 # --------------------------------------------------------------------------
@@ -109,6 +110,24 @@ ELEVENLABS_API_BASE = env_str("ELEVENLABS_API_BASE", "https://api.elevenlabs.io"
 ELEVENLABS_OUTPUT_FORMAT = env_str("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128")
 # Zero-retention mode (enable_logging=false) is only available to ElevenLabs enterprise accounts.
 ELEVENLABS_ZERO_RETENTION = env_bool("ELEVENLABS_ZERO_RETENTION", False)
+
+# CNIC OCR (M4, ID-01): tesseract (local executable on this host, no external service) | unconfigured.
+CNIC_OCR_PROVIDER = env_choice("CNIC_OCR_PROVIDER", {"tesseract", "unconfigured"}, default="tesseract")
+# Full path to tesseract(.exe), or a name on PATH. On Windows the standard install folder is also checked.
+TESSERACT_CMD = env_str("TESSERACT_CMD", "tesseract")
+TESSERACT_LANG = env_str("TESSERACT_LANG", "eng")  # needs <lang>.traineddata in Tesseract's tessdata folder
+OCR_TIMEOUT_SECONDS = env_int("OCR_TIMEOUT_SECONDS", 20, minimum=3)  # total budget for one scan, all rotations
+# Identity verification (M4, ID-02): demo_registry (fictional records, demo deployments only) | unconfigured.
+# Authorised NADRA access is a separate provider that does not exist yet; it stays unconfigured.
+IDENTITY_VERIFICATION_PROVIDER = env_choice("IDENTITY_VERIFICATION_PROVIDER", {"demo_registry", "unconfigured"})
+# CNIC images: JPEG/PNG/WebP, checked by content; stored privately (owner + authorised staff only).
+IDENTITY_LIMITS = {
+    "MAX_IMAGE_BYTES": 5 * 1024 * 1024,
+    "MIN_IMAGE_BYTES": 200,
+    "MIN_WIDTH": 400,
+    "MIN_HEIGHT": 250,
+    "MAX_PIXELS": 40_000_000,  # decompression-bomb guard (e.g. 8000 × 5000)
+}
 
 # Per-attempt timeout and retry budget for every provider call (AI-03).
 AI_PROVIDER_TIMEOUT_SECONDS = env_int("AI_PROVIDER_TIMEOUT_SECONDS", 20, minimum=1)
@@ -283,6 +302,8 @@ API_THROTTLE_RATES = {
     "phone_code_ip": "60/hour",
     "audio_upload_user": "60/hour",
     "ai_request_user": "120/hour",
+    "identity_user": "40/hour",
+    "instruction_audio_ip": "120/hour",
 }
 
 # --------------------------------------------------------------------------
