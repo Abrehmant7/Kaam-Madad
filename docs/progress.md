@@ -14,8 +14,8 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M2 Accounts, language, catalog | ✅ Complete (25 Nov 2026) |
 | M3 Audio and AI adapters | ✅ Complete (25 Nov 2026) — fixture-verified; live keys not yet tested. 26 Nov: ElevenLabs read-aloud added |
 | M4 Worker onboarding and identity check | ✅ Complete (27 Nov 2026) — real Tesseract OCR verified on synthetic cards; registry simulated |
-| M5 Customer and job requests | ⬜ Next |
-| M6 Recommendations and invitations | ⬜ Not started |
+| M5 Customer and job requests | ✅ Complete (27 Nov 2026) — fixture and live voice checks recorded |
+| M6 Recommendations and invitations | ⬜ Next |
 | M7 Communication and agreements | ⬜ Not started |
 | M8 Booking and arrival | ⬜ Not started |
 | M9 Completion and feedback | ⬜ Not started |
@@ -23,6 +23,106 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M11 Integration and delivery | ⬜ Not started |
 
 ---
+
+## M5 Customer job requests — complete (27 Nov 2026)
+
+### Delivered
+
+- [x] **Customer dashboard:** **Describe your job**, **My requests** (drafts to resume, confirmed requests to
+  reopen) and phone confirmation. Signup and phone confirmation are unchanged.
+- [x] **Step 1, describe:**
+  - Record, upload or type, in Urdu or English, reusing the M3 `VoiceCapture` and the `job_description`
+    interpretation API.
+  - The draft is saved before any provider call, so it survives provider errors and reloads.
+  - Manual path ("Continue without suggestions").
+- [x] **Step 2, details:**
+  - The original input is shown verbatim, including negations.
+  - Editable suggestions, marked "Please check"; unmatched mentions are listed.
+  - Trade and services, with work not needed under "More options"; city and area.
+  - **Exact date, start and end time.** "کل شام" is shown with a prompt; times are never guessed.
+  - Private address and access notes, a budget preference, and up to 5 photos.
+- [x] **Step 3, review:**
+  - A plain-language summary.
+  - **Read aloud** (M3 `ReadAloud`) of the work, area, date and time only.
+  - Copy saying confirmation saves and does not invite or reserve.
+  - Confirm, then the request detail page.
+- [x] **Backend `apps.jobs`:**
+  - `JobRequest` (customer-owned; original input plus owned source references kept apart from confirmed
+    details; UTC window; `DecimalField` budget preference; private address and access notes) and `JobPhoto`.
+  - Migration `jobs.0001`.
+- [x] **Server validation:**
+  - Catalog relationships: services in the trade, area in the city, no overlap.
+  - Time window: end after start, not in the past, at most 90 days ahead.
+  - Required fields are checked on confirmation. Confirmation is idempotent (row lock), and a failed
+    confirmation leaves the draft unchanged.
+- [x] **Ownership:** every lookup is scoped to the session's customer (others get 404); workers get 403.
+  Audio, transcripts and interpretations can only be attached by their owner.
+- [x] **Photos:** content-checked, re-encoded without metadata (EXIF/GPS removed), private owner-only
+  downloads, never sent to AI.
+- [x] **M6 hand-off:** `apps.jobs.summary.matching_summary(job)` gives a confirmed request without the address,
+  access notes, photos or original audio.
+
+### Voice and AI checks: fixtures vs live
+
+| Check | Providers | Result |
+|---|---|---|
+| Urdu voice request recorded in Chrome with a fake microphone | **Fixtures** (STT, interpretation, TTS) | Transcript kept verbatim, with "کل شام" and "AC کی service نہیں چاہیے". Prefilled electrician, fan installation, G-9; time phrase flagged; window empty until chosen; confirmed |
+| English typed request | **Fixture** interpretation | Plumber, tap, G-10; "No geyser work" → geyser **not needed** (after the negation fix below) |
+| Provider failure | `INTERPRETATION_PROVIDER=unconfigured` | Error shown, draft kept, listed after a reload, finished manually and confirmed |
+| Urdu voice note (fictional, made with live ElevenLabs) uploaded | **Live Gemini** `gemini-3.6-flash` from `.env` | ❌ Google `503` "high demand" and a timeout on two runs. The UI showed the error and kept the draft, as designed |
+| Same voice note | **Live Gemini `gemini-3-flash-preview`** (model overridden for this run only) + **live ElevenLabs** | ✅ Transcript in 12.7 s: "میرے گھر میں دو پنکھے لگوانے ہیں G9 Islamabad میں۔ کل شام کو آ جائیں۔ AC کی service نہیں چاہیے۔". Prefilled electrician, fan installation, G-9 and "کل شام"; time prompt shown; ElevenLabs read the summary (`simulated: false`) without the address; confirmed |
+
+### Browser walk-through (Chrome, 360 px, real backend), 27 Nov 2026
+
+1. **Urdu customer:**
+   - Signup from "مجھے کاریگر چاہیے", then an empty dashboard.
+   - Record, details, **page reload** (the draft was still prefilled).
+   - Details: description, 17:00–19:00 tomorrow, address, access, budget 3500, and a photo **with GPS EXIF**.
+   - Review: read aloud excluded the address and access notes.
+   - Confirm, then the detail page; after a reload it was listed as confirmed.
+   - **Stored UTC** `12:00Z–14:00Z` (17:00–19:00 Karachi).
+   - **Second confirm:** `200 already_confirmed: true`, with **1** request in total.
+   - **Stored photo:** no `Exif` and no camera make; `private, no-store`.
+2. **Server rejections, from the browser:**
+   - Cross-trade service → `service_not_in_trade`.
+   - Area outside the city → `area_not_in_city`.
+   - End before start → `window_end_before_start`.
+   - Yesterday → `window_in_past`.
+   - A fake JPEG → `415 image_unsupported`.
+3. **Another customer and a worker:** another customer got view, edit, confirm and photo → **404**, with an empty
+   list. A worker got the list and detail → **403**.
+4. **English typed request:** typed → details → review → confirm → **reopened from My requests**, with the
+   original text shown.
+5. **Regression:** the M4 walk-through (worker signup, three screens, refresh and login resume, real Tesseract
+   scan, demo approval, customer signup) passed again.
+6. **Width:** no horizontal overflow at 360 px in Urdu or English.
+
+The walk-through found and fixed:
+- Urdu screens showed the time range out of order ("PM – 7:00 PM 5:00"). Time ranges are now in LTR isolates,
+  and the server strips these invisible marks before speech synthesis (tested).
+- Urdu text starting with "G-9" was laid out left to right. Direction is now chosen by the dominant script.
+- The simulated (fixture) interpreter missed English "no …" negations. It now matches `no`, `without` and
+  `never` as whole words.
+- Running many test sign-ups in an hour hit the signup rate limit (30 per hour per IP), as intended. The local
+  throttle counters were cleared to finish the walk-through.
+
+### Automated checks
+
+| Check | Result |
+|---|---|
+| Backend tests (real PostgreSQL) | ✅ **259 passed** (25 new for M5, plus fixture-negation and speech-text cleaning tests) |
+| `check`, `makemigrations --check` | ✅ No issues, no pending migrations |
+| Frontend typecheck / tests / build | ✅ No errors / **66 passed** / built |
+
+### Known limitations
+
+- **Live Gemini:** `gemini-3.6-flash` (the model in `.env`) answered 503 throughout the live check;
+  `gemini-3-flash-preview` worked. Set `GEMINI_STT_MODEL`/`GEMINI_INTERPRETATION_MODEL` accordingly, or retry later.
+- **Fixture interpretation:** keyword rules (e.g. "leaking" is not matched to "leak repair"). Demo only and
+  labelled as simulated.
+- **Read-only after confirming:** changing a confirmed request (refining the window during negotiation) comes
+  with M6 and M7.
+- **Not tested:** real phone cameras, microphones and native date pickers.
 
 ## M4 Worker onboarding and identity check — complete (27 Nov 2026)
 

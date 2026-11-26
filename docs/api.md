@@ -1,7 +1,7 @@
 # Kaam Madad — API Contracts
 
 All endpoints are under `/api/v1/`, return JSON, and are served from the same origin as the web app.
-Implemented through **M4**. Planned endpoint families for later modules are listed in
+Implemented through **M5**. Planned endpoint families for later modules are listed in
 [requirements.md §10](requirements.md#10-api-contracts-and-screen-inventory) and are **not** implemented.
 
 ## Conventions
@@ -322,3 +322,104 @@ for one fixed instruction: `signup_password`, `onboarding_work`, `onboarding_are
 
 `GET /config/` also returns `ai.cnic_ocr` (`{"provider": "tesseract", "available", "simulated": false}`) and
 `identity_verification`.
+
+## Job requests (M5)
+
+**Access:**
+- Every endpoint needs a signed-in **customer**. Workers get `403 customer_role_required`.
+- Only the customer's own requests are visible; another customer's request or photo IDs return `404`.
+- Ownership of attached audio, transcriptions and interpretations comes from the session.
+
+**Statuses:** `draft` is saved, resumable and editable. `confirmed` is validated and read-only in M5.
+Confirming **saves** the request; it does not invite a worker or reserve a time (that is M6 and later).
+
+### Create and list
+
+- `POST /jobs/` creates a draft → `201 Job`.
+  - Body: `{"source_kind": "text", "original_text": "…", "source_language": "ur"|"en"}`
+    or `{"source_kind": "voice", "audio_clip_id": "<own clip, purpose job_description>"}`.
+  - Errors: `original_text`/`audio_clip_id` → `required`; another customer's clip → `audio_clip_id: not_found`.
+- `GET /jobs/?status=draft|confirmed&page=&page_size=` → paginated
+  `{"count", "next", "previous", "results": [ListItem]}`.
+  - A ListItem has `id`, `status`, `description` (first 160 characters), `trade`, `services`, `city`, `area`,
+    `window_start`, `window_end`, `updated_at` and `confirmed_at`.
+  - It never includes the address or access notes.
+- `GET /jobs/{id}/` → `Job`. `DELETE /jobs/{id}/` (drafts only) → `204`.
+
+### Attach voice / AI suggestions
+
+`POST /jobs/{id}/source/` `{"transcription_id"?, "interpretation_id"?}` → `Job`.
+- **Original text:** set once, from the customer's own transcript or interpretation, and never edited afterwards.
+- **Prefill:** the interpretation (`kind: job_description`) fills only **empty** fields, and only with active
+  catalog entries that fit together. Services of another trade are dropped, and the city is derived from the area.
+- **`preferred_time_text`** is copied as said ("کل شام"). The window is **never** guessed from it.
+- **Errors:** `409 request_source_mismatch` when the transcript or interpretation belongs to a different text or
+  clip; `not_found` for someone else's objects.
+
+### Edit a draft
+
+`PATCH /jobs/{id}/` with any of the fields below → `Job` (`409 request_not_editable` once confirmed):
+- `description`
+- `trade`, `services[]`, `services_excluded[]`
+- `city`, `area`
+- `preferred_time_text`
+- `window_start`, `window_end`: ISO 8601. Naive times are read as Asia/Karachi; values are stored and returned in UTC (`…Z`).
+- `address_private`, `access_notes`: private; ≤ 500 characters each.
+- `budget_pkr`: a decimal ≥ 0, the customer's preference.
+
+The rules below are checked on every save; if any fails the response is `400` and nothing is saved:
+
+| Field | Codes |
+|---|---|
+| `trade` | `unknown_trade` |
+| `services` / `services_excluded` | `unknown_service`, `service_not_in_trade` |
+| `services_excluded` | `offered_and_excluded_overlap` |
+| `city` / `area` | `unknown_city`, `unknown_area`, `area_not_in_city` |
+| `window_end` | `window_end_before_start` |
+| `window_start` | `window_in_past`, `window_too_far` (> 90 days) |
+| `budget_pkr` | `min_value`, `max_value`, `invalid` |
+| unknown fields | `unexpected_field` |
+
+### Confirm
+
+`POST /jobs/{id}/confirm/` → `Job` with `already_confirmed: false`.
+- **Requirements:** a description, a trade, at least one service, a city, an area and both window times
+  (`required` / `too_few`), and all the rules above, including "not in the past" at the time of confirming.
+- **Failure:** `400`, and the draft is unchanged.
+- **Idempotent:** repeating the call returns the same request with `already_confirmed: true`, so one request
+  still exists.
+
+### Photos
+
+- **Upload:** `POST /jobs/{id}/photos/`, multipart field `image` (drafts only) → `201 Photo`.
+  - Accepted: JPEG/PNG/WebP, ≤ 5 MB, at most 5 per request.
+  - Checked by content: magic bytes, Pillow decode, format match, ≤ 40 MP, ≥ 50 px.
+  - **Re-encoded without metadata**, so EXIF/GPS is removed.
+  - Errors: `413 image_too_large`, `415 image_unsupported`, `400 image_dimensions`, `409 too_many_photos`.
+- **Delete:** `DELETE /jobs/{id}/photos/{photo_id}/` (drafts only) → `204`.
+- **Download:** `GET /jobs/{id}/photos/{photo_id}/content/` → the image, owner only, `private, no-store`.
+- Photos are never sent to AI interpretation.
+
+### Job payload
+
+```json
+{"id": "…", "status": "draft", "created_at": "…Z", "updated_at": "…Z", "confirmed_at": null,
+ "source": {"kind": "voice", "language": "ur", "original_text": "…کل شام کو آ جائیں۔ AC کی service نہیں چاہیے…",
+            "audio_clip_id": "…", "transcription_id": "…"},
+ "details": {"description": "…", "trade": "electrician", "services": ["elec_fan_install"], "services_excluded": [],
+             "city": "islamabad", "area": "isb-g-9", "preferred_time_text": "کل شام",
+             "window_start": "2026-11-27T12:00:00Z", "window_end": "2026-11-27T14:00:00Z", "timezone": "Asia/Karachi",
+             "address_private": "…", "access_notes": "…", "budget_pkr": "3500.00"},
+ "suggestions": {"interpretation_id": "…", "provider": "gemini", "simulated": false, "fields": {…},
+                 "missing": [], "uncertain": ["preferred_time_text"], "unmatched_mentions": [], "heard": {}},
+ "photos": [{"id": "…", "mime_type": "image/jpeg", "width": 800, "height": 600, "size_bytes": 14873,
+             "content_url": "/api/v1/jobs/…/photos/…/content/"}],
+ "issues": {"window_start": ["required"]},
+ "ready_to_confirm": false}
+```
+
+`issues` lists what still blocks confirmation (for drafts). For M6, `apps.jobs.summary.matching_summary(job)` gives
+the shareable view without the address, access notes, photos or original audio.
+
+Speech: `POST /audio/synthesise/` now removes invisible direction marks (LRI/PDI, LRM/RLM), which the UI adds to
+keep times in order inside Urdu text, before the text reaches the provider.

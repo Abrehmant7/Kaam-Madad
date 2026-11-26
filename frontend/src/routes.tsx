@@ -3,7 +3,12 @@ import type { RouteObject } from "react-router";
 import { GuestOnly, RequireAuth } from "./auth/guards";
 import { AppShell } from "./components/layout/AppShell";
 import { CatalogPreviewPage } from "./pages/CatalogPreviewPage";
-import { AccountHomePage, CustomerHomePage } from "./pages/HomePages";
+import { CustomerDashboardPage } from "./pages/customer/CustomerDashboardPage";
+import { DescribeJobPage } from "./pages/customer/DescribeJobPage";
+import { JobDetailPage } from "./pages/customer/JobDetailPage";
+import { JobDetailsPage } from "./pages/customer/JobDetailsPage";
+import { JobReviewPage } from "./pages/customer/JobReviewPage";
+import { AccountHomePage } from "./pages/HomePages";
 import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -52,7 +57,17 @@ export const routes: RouteObject[] = [
           { path: "verify", element: <VerifyIdentityPage /> },
         ],
       },
-      { path: "customer", element: <RequireAuth role="customer"><CustomerHomePage /></RequireAuth> },
+      {
+        path: "customer",
+        element: <RequireAuth role="customer" />,
+        children: [
+          { index: true, element: <CustomerDashboardPage /> },
+          { path: "requests/new", element: <DescribeJobPage /> },
+          { path: "requests/:id", element: <JobDetailPage /> },
+          { path: "requests/:id/details", element: <JobDetailsPage /> },
+          { path: "requests/:id/review", element: <JobReviewPage /> },
+        ],
+      },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

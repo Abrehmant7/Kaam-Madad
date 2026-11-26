@@ -10,10 +10,11 @@ using Urdu text, spoken instructions, recognisable icons and guided choices.
 
 Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 
-> **Status: Modules M1–M4 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
-> onboarding and identity check). Workers finish a three-screen onboarding, see a dashboard, and can scan a
-> synthetic DEMO card with real **Tesseract OCR** for a **simulated** demo-registry check. Customers sign up on
-> one screen. Job requests, recommendations, chat, quotations and bookings are **not** implemented yet.
+> **Status: Modules M1–M5 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
+> onboarding and identity check; customer job requests). Workers finish a three-screen onboarding and can scan a
+> synthetic DEMO card with real **Tesseract OCR** for a **simulated** demo-registry check. Customers describe a
+> job by voice or text, review and confirm it, and reopen it from **My requests**. Recommendations, invitations,
+> chat, quotations and bookings are **not** implemented yet.
 > See [docs/progress.md](docs/progress.md).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
@@ -186,6 +187,7 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 | CNIC OCR | **Implemented** (M4): local Tesseract on the backend host (no external service). Reads the printed English name and number. |
 | NADRA / identity verification | **Not integrated** (needs authorised access). Demo deployments use a **simulated** fictional registry; demo approvals never count in live mode. |
 | Speech-to-text, interpretation, text-to-speech | **Implemented** (M3): Gemini (speech-to-text, interpretation); Azure AI Speech or ElevenLabs `eleven_v3` (Urdu read-aloud, selectable). Need keys in `.env`; without them development uses labelled fixtures and production reports "not configured". Not yet verified with live keys — see [Live check](#live-check-with-real-providers). |
+| Customer job requests | **Implemented** (M5): voice/text description, review, confirmation, private photos |
 | Recommendations, chat, quotations, bookings, reviews, reports | Not implemented (M6–M10) |
 
 ## 6. Voice and AI (M3)
@@ -354,7 +356,52 @@ Tap **مجھے کاریگر چاہیے / I need a worker** and enter your mobile
 on the customer dashboard, where phone confirmation is available. Job requests (and their service area) come
 in M5.
 
-## 8. Checks and tests
+## 8. Customer job requests (M5)
+
+After pulling: `python manage.py migrate` (adds the `jobs` app). Nothing else is new to install.
+
+### Demo: customer
+
+1. Open http://localhost:5173 and tap **مجھے کاریگر چاہیے / I need a worker**. Sign up (one screen) to reach
+   the **customer dashboard**, which has **Describe your job** and **My requests**.
+2. **Step 1, describe:** choose Urdu or English, then either
+   - **Speak**: record (permission is asked only when you press Record) or **upload** a voice file, or
+   - **Type**.
+
+   **Continue** saves a **draft first**, then asks the AI for suggestions. If transcription or AI fails, the
+   draft is kept: **Try again**, **Continue without suggestions**, or **Start over**.
+3. **Step 2, details:**
+   - **What you said** is your original words (never changed).
+   - Choose the trade and the work; work you do **not** need is under **More options**. Then the city and area.
+   - Pick the **date, start and end time** (Pakistan time). If you said "کل شام", the screen shows the phrase
+     and asks you to pick the actual times; it never guesses them.
+   - Optional: the exact address and access notes (private), a budget (your preference, not a price) and up
+     to 5 photos.
+   - **Save draft** or **Save and review**. Drafts can be reopened from **My requests**, even after a reload.
+4. **Step 3, review:**
+   - A plain summary. **Read aloud** reads only the work, area, date and time, never your address or notes.
+   - **Confirm request** saves it. It does **not** invite a worker or reserve a time.
+   - You land on the request page, which you can reopen from **My requests**.
+
+With the default development settings (`*_PROVIDER` not set) voice and AI are **simulated fixtures**, and say so
+on screen. The fixture transcript is a fixed sample: "…G-9 … کل شام کو آ جائیں۔ AC کی service نہیں چاہیے". To use
+real providers, see §6.
+
+### Rules the server enforces
+
+- **Catalog:** services must belong to the chosen trade, the area must belong to the chosen city, and
+  needed and not-needed work cannot overlap.
+- **Time window:** the end must be after the start, the start cannot be in the past or more than 90 days ahead,
+  and times are stored in UTC.
+- **Photos:**
+  - JPEG/PNG/WebP, ≤ 5 MB, ≤ 5 per request, checked by content.
+  - Re-saved **without metadata**, so GPS is removed.
+  - Downloads only for the owner. Photos never go to AI.
+- **Access:** only the owner can see, edit, confirm or download a request; workers cannot browse requests in M5.
+- **Confirming:** confirming twice keeps **one** confirmed request, and a failed confirmation leaves the draft
+  as it was.
+
+## 9. Checks and tests
 
 ```bash
 # Backend (from backend/, venv active) — runs against a real PostgreSQL test database
@@ -375,7 +422,7 @@ curl http://localhost:5173/api/v1/health/live/    # {"status":"ok"}
 curl http://localhost:5173/api/v1/health/ready/   # {"status":"ok","checks":{"database":"ok"}} or 503
 ```
 
-## 9. Production-like local run (same origin)
+## 10. Production-like local run (same origin)
 
 Builds the frontend and lets Django serve everything on one port, with production settings
 (HTTPS redirect disabled only because this local test uses plain HTTP):

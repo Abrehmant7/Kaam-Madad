@@ -12,6 +12,7 @@ export const PATHS = {
   workerAreas: "/worker/setup/areas",
   workerVerify: "/worker/verify",
   customer: "/customer",
+  newJob: "/customer/requests/new",
   catalog: "/catalog",
   voiceTest: "/voice-test",
 } as const;

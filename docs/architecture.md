@@ -496,3 +496,48 @@ API contracts: [api.md § Workers and identity](api.md#workers-and-identity-m4).
 configured TTS provider. The client sends only the key, so passwords, codes and CNIC numbers can never reach
 speech synthesis. The frontend `InstructionAudio` component always shows the text and offers the play button
 only when TTS is available.
+
+## 11. Module M5 — customer job requests
+
+API contracts: [api.md § Job requests](api.md#job-requests-m5).
+
+### Model and lifecycle (`apps/jobs`)
+
+- `JobRequest` belongs to one customer (`customer` FK from the session). It keeps the **original input**
+  (`original_text` set once, plus owned references to the `AudioClip`, `Transcription` and `Interpretation`)
+  separately from the **confirmed details**:
+  - description, trade, services and services not needed, city, area;
+  - `preferred_time_text` as said, and the UTC window `window_start`/`window_end`;
+  - private `address_private` and `access_notes`;
+  - `budget_pkr` (decimal, the customer's preference).
+- Status is `draft` → `confirmed`. Database constraints require the trade, city, area and window once confirmed,
+  `window_end > window_start` and a non-negative budget.
+- **Draft first:** the frontend creates the draft before calling speech-to-text or interpretation, so
+  provider errors and reloads never lose the input. `POST /jobs/{id}/source/` attaches the customer's own
+  transcript or interpretation and fills only empty fields with suggestions that pass the rules.
+- **Rules:** `rules.check()` holds the relationship and window rules (always) and the required fields (on
+  confirmation only). A `PATCH` that breaks a rule saves nothing. Confirmation runs under `select_for_update`
+  and is idempotent.
+- **Time:** the UI takes a Karachi date and start/end times and sends `…+05:00` (Pakistan has no DST). The server
+  also reads naive times as Asia/Karachi, stores UTC and rejects past windows and windows more than 90 days
+  ahead. The UI formats with `Intl` in `Asia/Karachi`.
+
+### Privacy
+
+- **Ownership:** all queries are scoped to `customer=request.user`, so another customer's IDs are `404`;
+  `IsCustomer` keeps workers out.
+- **Photos:** `photos.clean_photo` validates the content, applies the EXIF orientation and **re-encodes**
+  without metadata (removing GPS). Files are stored privately with random names; downloads are checked against
+  the owner and served `private, no-store`. Photos never reach AI.
+- **Read aloud:** it speaks only the work, area, date and time (`speechText`). The address and access notes never
+  reach speech synthesis; the server also strips invisible bidi marks before synthesis.
+- **Matching:** `summary.matching_summary(job)` is the only shape M6 should use to show a request to workers.
+  It leaves out the address, access notes, photos and original audio.
+
+### M6 hand-off
+
+A confirmed `JobRequest` has validated `trade`, `services` (plus `services_excluded`), `city`/`area` and a UTC
+window. M6 should:
+- match on these fields together with `apps.workers.eligibility.worker_eligibility(...).receives_requests`;
+- read requests through `matching_summary`;
+- add invitations without changing the confirmed request.
