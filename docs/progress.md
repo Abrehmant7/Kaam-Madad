@@ -39,8 +39,21 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
   ElevenLabs endpoint (silent MP3, not the real service): typed fictional Urdu sentence → draft → confirm → read
   aloud → `201`, `audio/mpeg`, `private, no-store`, decoded by Chrome (1.56 s), no "simulated" label on read-aloud;
   stub `401 quota_exceeded` → `429 ai_provider_limit_reached`, text kept, retry offered. Logs held no text.
-- **Not verified live**: no ElevenLabs key was available in this environment, so the real voice quality for Urdu
-  is untested. Steps: README "Read-aloud with ElevenLabs".
+- **Live check (26 Nov 2026, with the developer's keys)**:
+  - ElevenLabs `eleven_v3` + premade voice George (`JBFqnCBsd6RMkjVDRZzb`): `[OK]`, real Urdu MP3 (122 KB) for a
+    fictional sentence. A Voice Library voice failed with `402 paid_plan_required` (free plan) — now reported as
+    `ai_provider_not_configured (paid_plan_required)`; a pasted key *ID* (`api_key_id_used_as_api_key`) is
+    reported as `credentials_rejected`.
+  - Gemini, with that MP3 as the speech sample: `gemini-3.6-flash` and `gemini-3-flash-preview` `[OK]` —
+    transcript `میرا نام احمد ہے۔ میں electrician ہوں۔ میں پنکھے لگاتا ہوں لیکن motor rewinding نہیں کرتا۔`;
+    draft trade `electrician`, offered `elec_fan_install`, "motor rewinding نہیں کرتا" unmatched and **negated**.
+    `gemini-3.8-flash` / `3.7-flash` answered `503` "high demand" all morning (Google-side, temporary).
+  - Confirmed the real Interactions response shape: top-level `steps` (no `output_text`); the adapter's
+    `steps[].model_output` path handled it.
+- **Fixed**: the test settings inherited providers and keys from the developer's `.env`, so with real keys the
+  suite called Gemini/ElevenLabs. `config/settings/test.py` now forces fixtures and blank keys, with a regression
+  test. Backend **187 passed** with the real `.env` present.
+- Not yet verified: listening quality of the Urdu voice (by a person), the in-browser flow with live providers.
 
 ## M3 Audio and AI adapters — complete (fixture-verified; live providers not yet exercised)
 

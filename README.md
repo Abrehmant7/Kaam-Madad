@@ -231,7 +231,8 @@ Read-aloud can use ElevenLabs instead of Azure. Speech-to-text and interpretatio
 whatever `SPEECH_TO_TEXT_PROVIDER` / `INTERPRETATION_PROVIDER` you set (Gemini or the fixtures).
 
 1. In ElevenLabs, create an API key (Developers → API keys, with *Text to Speech* access) and copy a **voice ID**
-   from *My Voices* (add a voice from the Voice Library first if the list is empty). `eleven_v3` reads Urdu
+   from *My Voices*. On the **free plan use a premade/default voice** (e.g. George `JBFqnCBsd6RMkjVDRZzb`):
+   free accounts cannot use Voice Library voices through the API (`paid_plan_required`). `eleven_v3` reads Urdu
    and English with the same voice.
 2. In `.env` set:
    ```
@@ -248,7 +249,7 @@ whatever `SPEECH_TO_TEXT_PROVIDER` / `INTERPRETATION_PROVIDER` you set (Gemini o
    ```
    Expected: `[OK] text_to_speech: elevenlabs voice=eleven_v3/<voice id> simulated=False format=audio/mpeg …`
    and a playable `speech.mp3`. `[FAIL]` lines show the reason: `missing_api_key`, `missing_voice_id`,
-   `credentials_rejected`, `voice_not_found` (not configured), `quota_exceeded` or
+   `credentials_rejected`, `voice_not_found`, `paid_plan_required` (not configured), `quota_exceeded` or
    `too_many_concurrent_requests` (usage limit), `system_busy` or `http_<status>` (provider failure).
 4. Restart `runserver`, open `/voice-test`, type or record a fictional sentence, **Confirm**, then **Read aloud**.
    The page does not show the "simulated" label, and `GET /api/v1/config/` shows

@@ -276,6 +276,9 @@ class ElevenLabsTextToSpeechTests(SimpleTestCase):
             (elevenlabs_error(429, "system_busy"), ProviderUnavailable, "system_busy"),
             (elevenlabs_error(401, "invalid_api_key"), ProviderNotConfigured, "credentials_rejected"),
             (elevenlabs_error(404, "voice_not_found"), ProviderNotConfigured, "voice_not_found"),
+            (httpx.Response(402, json={"detail": {"type": "payment_required", "code": "paid_plan_required",
+                                                  "status": "payment_required"}}),
+             ProviderNotConfigured, "paid_plan_required"),
             (httpx.Response(400, json={"detail": {"type": "authentication_error", "code": "invalid_api_key",
                                                   "status": "api_key_id_used_as_api_key"}}),
              ProviderNotConfigured, "credentials_rejected"),
@@ -353,3 +356,14 @@ class LiveModeGuardTests(SimpleTestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("SPEECH_TO_TEXT_PROVIDER=fixture", result.stderr)
+
+
+class TestIsolationTests(SimpleTestCase):
+    def test_suite_never_uses_real_providers_or_keys_from_dotenv(self):
+        from django.conf import settings
+
+        self.assertEqual(settings.DEPLOYMENT_MODE, "demo")
+        for name in ("SPEECH_TO_TEXT_PROVIDER", "INTERPRETATION_PROVIDER", "TEXT_TO_SPEECH_PROVIDER"):
+            self.assertEqual(getattr(settings, name), "fixture", name)
+        for name in ("GEMINI_API_KEY", "AZURE_SPEECH_KEY", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"):
+            self.assertEqual(getattr(settings, name), "", name)

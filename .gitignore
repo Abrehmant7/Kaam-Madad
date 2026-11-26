@@ -44,3 +44,7 @@ desktop.ini
 
 # --- Logs ---
 *.log
+
+# Local voice samples from check_ai_providers --save-speech (never commit audio)
+backend/*.mp3
+backend/*.wav

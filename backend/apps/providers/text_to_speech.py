@@ -145,6 +145,8 @@ _ELEVENLABS_ERRORS = {
     "system_busy": ProviderUnavailable,
     "invalid_api_key": ProviderNotConfigured,
     "voice_not_found": ProviderNotConfigured,
+    # 402: e.g. free plans cannot use Voice Library voices through the API — choose another voice or plan.
+    "paid_plan_required": ProviderNotConfigured,
 }
 
 
@@ -164,6 +166,8 @@ def _elevenlabs_error(response: httpx.Response) -> ProviderError | None:
             return error_class(reason, retry_after_seconds=http.retry_after(response))
     if detail.get("type") == "authentication_error":
         return ProviderNotConfigured("credentials_rejected")
+    if detail.get("type") == "payment_required":
+        return ProviderNotConfigured("paid_plan_required")
     return None
 
 
