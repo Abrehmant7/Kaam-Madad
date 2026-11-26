@@ -568,3 +568,14 @@ class InstructionTextSyncTests(TestCase):
             for key, texts in INSTRUCTIONS.items():
                 with self.subTest(key=key, language=language):
                     self.assertIn(f'"instructions.{key}": {json.dumps(texts[language], ensure_ascii=False)}', source)
+
+
+class SynthesisTextCleaningTests(VoiceApiTestCase):
+    def test_direction_marks_are_removed_before_synthesis(self):
+        with mock.patch("apps.providers.text_to_speech.FixtureTextToSpeech.synthesize",
+                        wraps=registry.text_to_speech().synthesize) as synthesize:
+            response = self.client.post(reverse("audio-synthesise"),
+                                        {"text": "وقت: \u20665:00 PM – 7:00 PM\u2069۔", "language": "ur"}, format="json")
+        self.assertEqual(response.status_code, 201, response.content)
+        sent = synthesize.call_args.kwargs["text"]
+        self.assertEqual(sent, "وقت: 5:00 PM – 7:00 PM۔")

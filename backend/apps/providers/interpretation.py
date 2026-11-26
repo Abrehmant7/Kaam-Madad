@@ -149,7 +149,8 @@ class UnconfiguredInterpretation(InterpretationProvider):
 # --- Fixture: deterministic rules for demo and tests ------------------------------
 
 _CLAUSE_SPLIT = re.compile(r"[۔.،,!?؟]|\bلیکن\b|\bbut\b|\blekin\b", re.IGNORECASE)
-_NEGATIONS = ("نہیں", "nahi", "nahin", "not", "don't", "dont")
+_NEGATIONS_URDU = ("نہیں",)  # matched inside the clause
+_NEGATION_WORDS = {"nahi", "nahin", "not", "don't", "dont", "no", "without", "never"}  # whole words only
 # English words of 2+ letters (trade terms spoken inside Urdu); excludes sector names like "G-9".
 _LATIN_WORDS = re.compile(r"(?<![A-Za-z\-])[A-Za-z]{2,}(?![A-Za-z]*-?\d)")
 
@@ -192,7 +193,9 @@ def _service_mentions(text: str) -> list[dict[str, Any]]:
         if not clause:
             continue
         lowered = clause.lower()
-        negated = any(neg in clause or neg in lowered.split() for neg in _NEGATIONS)
+        negated = any(neg in clause for neg in _NEGATIONS_URDU) or bool(
+            _NEGATION_WORDS & set(re.findall(r"[a-z']+", lowered))
+        )
         matched = False
         for code, patterns in _SERVICE_PATTERNS:
             if any(_matches(clause, p) for p in patterns):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -176,11 +177,19 @@ class InterpretSerializer(StrictFieldsMixin, serializers.Serializer):
         return attrs
 
 
+BIDI_CONTROLS = re.compile("[\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+
+
 class SynthesiseSerializer(StrictFieldsMixin, serializers.Serializer):
     text = serializers.CharField(trim_whitespace=True)
     language = serializers.ChoiceField(choices=SYNTH_LANGUAGES)
 
     def validate_text(self, value):
+        # Invisible direction marks (LRI/RLI/FSI/PDI, LRM/RLM) only order the text on screen;
+        # they are removed before speech synthesis (and before the reuse hash).
+        value = BIDI_CONTROLS.sub("", value).strip()
+        if not value:
+            raise serializers.ValidationError("Nothing to read.", code="blank")
         if len(value) > settings.VOICE_LIMITS["MAX_SYNTHESIS_CHARS"]:
             raise serializers.ValidationError("Too long.", code="max_length")
         return value

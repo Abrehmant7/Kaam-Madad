@@ -28,6 +28,7 @@ api_v1_patterns = [
     path("instructions/", include(voice_urls.instruction_patterns)),
     path("workers/", include(worker_urls.worker_patterns)),
     path("identity/", include(worker_urls.identity_patterns)),
+    path("jobs/", include("apps.jobs.urls")),
 ]
 
 urlpatterns = [
