@@ -79,6 +79,11 @@ class ChangeNotPending(_Conflict):
     default_detail = "This change is no longer waiting for approval."
 
 
+class ChangeOpen(_Conflict):
+    default_code = "change_open"
+    default_detail = "A change is waiting for a decision. Approve, reject or withdraw it before requesting completion."
+
+
 class TimeChangeNotAllowed(_Conflict):
     default_code = "time_change_not_allowed"
     default_detail = "The time can only be changed before the worker arrives."

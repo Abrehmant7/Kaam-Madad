@@ -248,7 +248,8 @@ def start_with_code(user, booking_id, code: str) -> Booking:
             return booking  # a retry after the code was accepted
         if booking.status != Booking.Status.ARRIVED:
             raise errors.BookingStateConflict(details={"status": booking.status})
-        if Booking.objects.filter(worker_profile_id=booking.worker_profile_id, status=Booking.Status.IN_PROGRESS).exists():
+        if (Booking.objects.filter(worker_profile_id=booking.worker_profile_id, status__in=Booking.ACTIVE_JOB)
+                .exclude(pk=booking.pk).exists()):
             raise errors.WorkerBusy()
         live = _live_codes(booking).select_for_update().first()
         if live is None:
@@ -333,7 +334,7 @@ def propose_change(user, booking_id, values: dict, note: str) -> BookingChange:
     booking, role = participant_booking(user, booking_id)
     with transaction.atomic():
         booking = _lock_booking_rows(booking, worker=True)
-        if booking.status not in Booking.RESERVING:
+        if booking.status not in Booking.CHANGEABLE:
             raise errors.BookingStateConflict(details={"status": booking.status})
         if booking.changes.filter(status=BookingChange.Status.PENDING).exists():
             raise errors.ChangePending()
@@ -378,7 +379,7 @@ def decide_change(user, booking_id, change_id, action: str) -> BookingChange:
             change.status = BookingChange.Status.REJECTED if action == "reject" else BookingChange.Status.WITHDRAWN
             kind = BookingEvent.Kind.CHANGE_REJECTED if action == "reject" else BookingEvent.Kind.CHANGE_WITHDRAWN
         else:
-            if booking.status not in Booking.RESERVING:
+            if booking.status not in Booking.CHANGEABLE:
                 raise errors.BookingStateConflict(details={"status": booking.status})
             new = change.new_terms
             start, end = _parse_time(new["start_at"]), _parse_time(new["end_at"])
@@ -415,3 +416,100 @@ def booking_for_invitation(invitation_id) -> Booking | None:
 
 def booking_for_job(job_id) -> Booking | None:
     return Booking.objects.filter(job_id=job_id).exclude(status=Booking.Status.CANCELLED).first()
+
+
+# --- Completion and disputes (M9: BK-06) ------------------------------------------------------------------------
+
+
+def request_completion(user, booking_id) -> Booking:
+    """The assigned worker says the work is done. The customer must confirm; the worker cannot complete alone."""
+    booking, role = participant_booking(user, booking_id)
+    if role != "worker":
+        raise errors.NotYourAction()
+    with transaction.atomic():
+        booking = _lock_booking_rows(booking, worker=True)
+        if booking.status == Booking.Status.COMPLETION_REQUESTED:
+            return booking  # a retry: no second event
+        if booking.status != Booking.Status.IN_PROGRESS:
+            raise errors.BookingStateConflict(details={"status": booking.status})
+        pending = booking.changes.filter(status=BookingChange.Status.PENDING).first()
+        if pending is not None:  # the terms to confirm must be settled first
+            raise errors.ChangeOpen(details={"change_id": str(pending.id), "number": pending.number})
+        booking.status, booking.completion_requested_at = Booking.Status.COMPLETION_REQUESTED, timezone.now()
+        booking.save(update_fields=["status", "completion_requested_at", "updated_at"])
+        _event(booking, BookingEvent.Kind.COMPLETION_REQUESTED, user, role, from_status=Booking.Status.IN_PROGRESS)
+    return booking
+
+
+def confirm_completion(user, booking_id) -> Booking:
+    """The customer confirms. The reservation is released; the booked services count as completed work."""
+    booking, role = participant_booking(user, booking_id)
+    if role != "customer":
+        raise errors.NotYourAction()
+    with transaction.atomic():
+        booking = _lock_booking_rows(booking, worker=True)
+        if booking.status == Booking.Status.COMPLETED:
+            return booking
+        if booking.status != Booking.Status.COMPLETION_REQUESTED:  # e.g. the customer already raised an issue
+            raise errors.BookingStateConflict(details={"status": booking.status})
+        booking.status, booking.completed_at = Booking.Status.COMPLETED, timezone.now()
+        booking.save(update_fields=["status", "completed_at", "updated_at"])
+        # Explicit catalog tags of the booked request (never inferred from text or taken from the worker profile).
+        booking.completed_services.set(booking.job.services.all())
+        _event(booking, BookingEvent.Kind.COMPLETED, user, role, from_status=Booking.Status.COMPLETION_REQUESTED,
+               data={"services": sorted(booking.job.services.values_list("code", flat=True))})
+    logger.info("Completion confirmed; reservation released.")
+    return booking
+
+
+def raise_issue(user, booking_id, *, reason: str, note: str) -> Booking:
+    """The customer does not confirm: the booking is disputed and keeps the worker's reservation until staff act."""
+    booking, role = participant_booking(user, booking_id)
+    if role != "customer":
+        raise errors.NotYourAction()
+    with transaction.atomic():
+        booking = _lock_booking_rows(booking, worker=True)
+        if booking.status == Booking.Status.DISPUTED:
+            return booking
+        if booking.status != Booking.Status.COMPLETION_REQUESTED:  # e.g. completion was already confirmed
+            raise errors.BookingStateConflict(details={"status": booking.status})
+        booking.status, booking.disputed_at = Booking.Status.DISPUTED, timezone.now()
+        booking.dispute_reason, booking.dispute_note = reason, note
+        booking.save(update_fields=["status", "disputed_at", "dispute_reason", "dispute_note", "updated_at"])
+        _event(booking, BookingEvent.Kind.DISPUTED, user, role, from_status=Booking.Status.COMPLETION_REQUESTED,
+               note=note, data={"reason": reason})
+    logger.info("Completion issue raised.")
+    return booking
+
+
+def staff_resolve(staff_user, booking_id, *, outcome: str, reason: str) -> Booking:
+    """Django Admin only (permission bookings.resolve_dispute). Return to work, or close without completion."""
+    if not (staff_user.is_active and staff_user.is_staff and staff_user.has_perm("bookings.resolve_dispute")):
+        raise errors.NotYourAction()
+    reason = reason.strip()
+    if len(reason) < 3:
+        raise ValidationError({"reason": [ErrorDetail("Give the reason for the outcome.", code="required")]})
+    first = Booking.objects.filter(pk=booking_id).first()
+    if first is None:
+        raise NotFound()
+    with transaction.atomic():
+        booking = _lock_booking_rows(first, invitation=True, worker=True)
+        if booking.status != Booking.Status.DISPUTED:
+            raise errors.BookingStateConflict(details={"status": booking.status})
+        now = timezone.now()
+        booking.staff_outcome, booking.staff_reason, booking.staff_by, booking.staff_at = outcome, reason, staff_user, now
+        if outcome == Booking.StaffOutcome.RETURN_TO_WORK:
+            booking.status = Booking.Status.IN_PROGRESS  # same booking: still the worker's one active job
+        elif outcome == Booking.StaffOutcome.CLOSE:
+            booking.status, booking.closed_at = Booking.Status.CLOSED, now  # releases the worker; no review
+            invitation = booking.invitation
+            if invitation.status == Invitation.Status.ACTIVE:  # the conversation becomes read-only
+                invitation.status, invitation.closed_at = Invitation.Status.CANCELLED, now
+                invitation.save(update_fields=["status", "closed_at"])
+        else:
+            raise ValidationError({"outcome": [ErrorDetail("Choose an outcome.", code="invalid_choice")]})
+        booking.save(update_fields=["status", "closed_at", "staff_outcome", "staff_reason", "staff_by", "staff_at", "updated_at"])
+        _event(booking, BookingEvent.Kind.STAFF_RESOLVED, staff_user, "staff", from_status=Booking.Status.DISPUTED,
+               note=reason, data={"outcome": outcome})
+    logger.info("Dispute outcome recorded by staff (%s).", outcome)
+    return booking

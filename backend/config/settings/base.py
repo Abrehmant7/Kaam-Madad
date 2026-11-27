@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "apps.invitations",
     "apps.conversations",
     "apps.bookings",
+    "apps.reviews",
 ]
 
 # --------------------------------------------------------------------------
@@ -324,6 +325,7 @@ API_THROTTLE_RATES = {
     "invitation_user": "120/hour",
     "conversation_user": "600/hour",
     "booking_user": "300/hour",
+    "review_user": "30/hour",
     "arrival_code_issue_user": "10/hour",
     "arrival_code_verify_user": "20/hour",
 }

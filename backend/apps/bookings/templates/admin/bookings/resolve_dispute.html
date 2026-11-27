@@ -1,0 +1,12 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Record dispute outcome</h1>
+<p>Booking {{ booking.id }} · status: {{ booking.get_status_display }}</p>
+<p><strong>Customer's reason:</strong> {{ booking.get_dispute_reason_display }}{% if booking.dispute_note %} — "{{ booking.dispute_note }}"{% endif %}</p>
+<p><em>Returning to in progress</em> lets the worker continue and request completion again.
+<em>Closing without confirmed completion</em> releases the worker; it does not count as completed work and no review can be left.</p>
+<form method="post">{% csrf_token %}
+  {{ form.as_p }}
+  <input type="submit" value="Record outcome">
+</form>
+{% endblock %}

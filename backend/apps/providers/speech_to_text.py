@@ -54,6 +54,8 @@ FIXTURE_TRANSCRIPTS = {
         "AC کی service نہیں چاہیے، صرف پنکھے۔"
     ),
     # A worker's voice note in a conversation (fictional): labour only, the customer buys the materials.
+    # A customer's spoken review of a completed job (fictional).
+    "review": "کاریگر وقت پر آئے، تینوں پنکھے صفائی سے لگائے اور کام کے بعد جگہ بھی صاف کی۔",
     "message": "میں کل شام پانچ بجے آ سکتا ہوں۔ پنکھوں کا سامان آپ خود لے کر رکھیں، میں صرف لگاؤں گا۔",
 }
 FIXTURE_DEFAULT = FIXTURE_TRANSCRIPTS["worker_introduction"]

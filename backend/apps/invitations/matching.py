@@ -12,9 +12,15 @@ A worker is a MATCH only if ALL of these hold (``match_profile``):
    catalog, identity status accepted in THIS deployment (demo approval only in demo mode), and the
    worker's own "accepting requests" choice.
 
-Ranking (``recommend``): more requested services among the worker's main specialities first;
-ties broken by the worker profile's opaque UUID (stable across calls, unrelated to sign-up order,
-so new workers are not pushed down). Reviews and completed-job history arrive in M9.
+Ranking (``recommend``), in order:
+1. more requested services among the worker's main specialities (relevance stays first);
+2. more customer-confirmed completed jobs that included a requested service (M9 work history);
+3. a smoothed visible rating — pulled towards a neutral 3.0 as if there were two extra 3-star reviews, so an
+   unrated worker ranks as neutral (not zero) and one 5-star review does not outrank a long record;
+4. more visible reviews;
+5. the worker profile's opaque UUID (stable tie-breaker, unrelated to sign-up order).
+History and ratings come from ``apps.reviews.services.worker_stats`` (two grouped queries for the whole list,
+computed from completed bookings and visible reviews — never from editable profile numbers).
 
 Every reason shown to the customer is a stored fact (declared services/specialities, declared
 service area, identity status). Services and specialities are the worker's own declarations.
@@ -23,6 +29,8 @@ service area, identity status). Services and specialities are the worker's own d
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+from decimal import Decimal
 
 from apps.accounts.models import User
 from apps.workers.eligibility import worker_eligibility
@@ -39,10 +47,15 @@ class Match:
     specialities_matched: list[str]
     verification_status: str
     reasons: list[dict] = field(default_factory=list)
+    stats: object = None  # apps.reviews.services.WorkerStats
 
     @property
-    def rank_key(self) -> tuple[int, str]:
-        return (-len(self.specialities_matched), str(self.profile.id))
+    def rank_key(self) -> tuple:
+        stats = self.stats
+        relevant = stats.relevant_jobs if stats else 0
+        rating = stats.ranking_rating if stats else Decimal("3")
+        count = stats.review_count if stats else 0
+        return (-len(self.specialities_matched), -relevant, -rating, -count, str(self.profile.id))
 
 
 def candidate_profiles(summary: dict):
@@ -96,7 +109,14 @@ def match_profile(profile: WorkerProfile, summary: dict) -> Match | None:
 
 
 def recommend(summary: dict) -> list[Match]:
+    from apps.reviews.services import worker_stats  # reviews depends on bookings, which depends on invitations
+
     matches = [m for m in (match_profile(p, summary) for p in candidate_profiles(summary)) if m is not None]
+    stats = worker_stats([m.profile.id for m in matches], summary["services"])
+    for match in matches:
+        match.stats = stats.get(str(match.profile.id))
+        if match.stats and match.stats.relevant_jobs:
+            match.reasons.append({"code": "completed_jobs", "count": match.stats.relevant_jobs, "services": match.services_matched})
     matches.sort(key=lambda m: m.rank_key)
     return matches[:MAX_RESULTS]
 
@@ -116,8 +136,11 @@ def worker_card(match: Match, previous_status: str | None = None) -> dict:
             "status": status,
             "simulated": status == IdentityVerification.Status.DEMO_APPROVED,
         },
-        # No completed jobs or reviews are recorded before M9: every worker is shown as new.
-        "is_new": True,
+        # "New worker": no customer-confirmed completed job yet. Ratings come only from visible reviews; an unrated
+        # worker has no rating (null), never zero.
+        "is_new": not (match.stats and match.stats.completed_jobs),
+        "history": match.stats.as_dict() if match.stats else {"completed_jobs": 0, "relevant_jobs": 0, "review_count": 0,
+                                                               "average_rating": None},
         "reasons": match.reasons,
         "previous_invitation": previous_status,
     }

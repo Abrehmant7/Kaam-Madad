@@ -14,7 +14,13 @@
   the previous code.
 - ``BookingChange``: proposed new scope, price or timing. The current terms stay in effect until the other
   person approves.
-- ``BookingEvent``: the status history handed to M9 (never contains a code).
+- ``BookingEvent``: the status history (never contains a code).
+
+M9 completes the life cycle: in_progress → completion_requested (worker) → completed (customer confirms) or
+disputed (customer raises an issue). Staff resolve a dispute by returning the job to in_progress or closing it
+without confirmed completion (``closed``). completion_requested and disputed keep the reservation and count as
+the worker's job in progress, even after the planned end. ``completed_services`` records the booked catalog
+services the customer confirmed as completed; work history and recommendations count only these.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ from django.db.models import F, Func, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from apps.catalog.models import ServiceTag
 from apps.conversations.models import Quote
 from apps.invitations.models import Invitation
 from apps.jobs.models import JobRequest
@@ -45,11 +52,30 @@ class Booking(models.Model):
         CONFIRMED = "confirmed", _("Confirmed")
         ARRIVED = "arrived", _("Worker arrived")
         IN_PROGRESS = "in_progress", _("In progress")
+        COMPLETION_REQUESTED = "completion_requested", _("Completion requested")
+        COMPLETED = "completed", _("Completed (confirmed by the customer)")
+        DISPUTED = "disputed", _("Disputed (completion issue)")
+        CLOSED = "closed", _("Closed by staff without confirmed completion")
         CANCELLED = "cancelled", _("Cancelled")
 
-    # Statuses that hold the worker's time. M9 adds completion and dispute states to this list.
-    RESERVING = (Status.CONFIRMED, Status.ARRIVED, Status.IN_PROGRESS)
+    # Statuses that hold the worker's time (the no-overlap constraint uses the same list).
+    RESERVING = (Status.CONFIRMED, Status.ARRIVED, Status.IN_PROGRESS, Status.COMPLETION_REQUESTED, Status.DISPUTED)
+    # "The worker's current job": at most one per worker; blocks starting another job even after the planned end.
+    ACTIVE_JOB = (Status.IN_PROGRESS, Status.COMPLETION_REQUESTED, Status.DISPUTED)
+    # Statuses in which the agreed terms may still change (not while completion or a dispute is pending).
+    CHANGEABLE = (Status.CONFIRMED, Status.ARRIVED, Status.IN_PROGRESS)
     CANCELLABLE = (Status.CONFIRMED, Status.ARRIVED)
+
+    class DisputeReason(models.TextChoices):
+        NOT_FINISHED = "not_finished", _("The work is not finished")
+        NOT_AS_AGREED = "not_as_agreed", _("The work is not as agreed")
+        DAMAGE = "damage", _("Something was damaged")
+        PRICE = "price", _("The price asked differs from the agreement")
+        OTHER = "other", _("Other")
+
+    class StaffOutcome(models.TextChoices):
+        RETURN_TO_WORK = "return_to_work", _("Returned to in progress for further work")
+        CLOSE = "close", _("Closed without confirmed completion")
 
     class CancelReason(models.TextChoices):
         NOT_AVAILABLE = "not_available", _("Can no longer make it")
@@ -64,7 +90,7 @@ class Booking(models.Model):
     quote_version = models.PositiveIntegerField()
     customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="customer_bookings")
     worker_profile = models.ForeignKey(WorkerProfile, on_delete=models.PROTECT, related_name="bookings")
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.CONFIRMED)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.CONFIRMED)
     start_at = models.DateTimeField()
     end_at = models.DateTimeField()
     accepted_terms = models.JSONField(help_text=_("Snapshot of the accepted quote version. Never changes."))
@@ -79,20 +105,40 @@ class Booking(models.Model):
     cancelled_role = models.CharField(max_length=16, blank=True, default="")
     cancel_reason = models.CharField(max_length=16, choices=CancelReason.choices, blank=True, default="")
     cancel_note = models.TextField(blank=True, default="")
+    # M9: completion and disputes.
+    completion_requested_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    completed_services = models.ManyToManyField(
+        ServiceTag, blank=True, related_name="+", help_text=_("Booked services the customer confirmed as completed."),
+    )
+    disputed_at = models.DateTimeField(null=True, blank=True)
+    dispute_reason = models.CharField(max_length=16, choices=DisputeReason.choices, blank=True, default="")
+    dispute_note = models.TextField(blank=True, default="")
+    closed_at = models.DateTimeField(null=True, blank=True)
+    staff_outcome = models.CharField(max_length=16, choices=StaffOutcome.choices, blank=True, default="")
+    staff_reason = models.TextField(blank=True, default="")
+    staff_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    staff_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
+        permissions = [("resolve_dispute", "Can record the outcome of a booking dispute")]
         indexes = [models.Index(fields=["worker_profile", "status", "start_at"], name="booking_worker_status_idx")]
         constraints = [
             models.UniqueConstraint(fields=["job"], condition=~Q(status="cancelled"), name="booking_one_per_job"),
             models.UniqueConstraint(fields=["customer", "idempotency_key"], name="booking_idempotency_once"),
-            models.UniqueConstraint(fields=["worker_profile"], condition=Q(status="in_progress"),
+            models.UniqueConstraint(fields=["worker_profile"],
+                                    condition=Q(status__in=["in_progress", "completion_requested", "disputed"]),
                                     name="booking_one_started_per_worker"),
             models.CheckConstraint(condition=Q(end_at__gt=F("start_at")), name="booking_end_after_start"),
             models.CheckConstraint(
                 condition=(~Q(status="cancelled") | (Q(cancelled_at__isnull=False) & ~Q(cancel_reason="")))
                 & (~Q(status="in_progress") | Q(started_at__isnull=False, arrived_at__isnull=False))
-                & (~Q(status="arrived") | Q(arrived_at__isnull=False)),
+                & (~Q(status="arrived") | Q(arrived_at__isnull=False))
+                & (~Q(status="completion_requested") | Q(completion_requested_at__isnull=False, started_at__isnull=False))
+                & (~Q(status="completed") | Q(completed_at__isnull=False, completion_requested_at__isnull=False))
+                & (~Q(status="disputed") | (Q(disputed_at__isnull=False) & ~Q(dispute_reason="")))
+                & (~Q(status="closed") | (Q(closed_at__isnull=False) & ~Q(staff_reason=""))),
                 name="booking_status_has_times",
             ),
             ExclusionConstraint(
@@ -101,7 +147,7 @@ class Booking(models.Model):
                     (TsTzRange("start_at", "end_at", RangeBoundary()), RangeOperators.OVERLAPS),  # "[)"
                     ("worker_profile", RangeOperators.EQUAL),
                 ],
-                condition=Q(status__in=["confirmed", "arrived", "in_progress"]),
+                condition=Q(status__in=["confirmed", "arrived", "in_progress", "completion_requested", "disputed"]),
             ),
         ]
 
@@ -194,12 +240,17 @@ class BookingEvent(models.Model):
         CHANGE_APPROVED = "change_approved", _("Change approved by both")
         CHANGE_REJECTED = "change_rejected", _("Change rejected")
         CHANGE_WITHDRAWN = "change_withdrawn", _("Change withdrawn")
+        COMPLETION_REQUESTED = "completion_requested", _("Worker requested completion")
+        COMPLETED = "completed", _("Customer confirmed completion")
+        DISPUTED = "disputed", _("Customer raised a completion issue")
+        STAFF_RESOLVED = "staff_resolved", _("Staff recorded a dispute outcome")
+        REVIEWED = "reviewed", _("Customer left a review")
 
     id = models.BigAutoField(primary_key=True)
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name="events")
     kind = models.CharField(max_length=24, choices=Kind.choices)
-    from_status = models.CharField(max_length=16, blank=True, default="")
-    to_status = models.CharField(max_length=16, blank=True, default="")
+    from_status = models.CharField(max_length=24, blank=True, default="")
+    to_status = models.CharField(max_length=24, blank=True, default="")
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     actor_role = models.CharField(max_length=16, blank=True, default="")
     note = models.TextField(blank=True, default="")

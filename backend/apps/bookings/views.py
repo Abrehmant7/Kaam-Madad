@@ -120,6 +120,17 @@ def booking_payload(booking: Booking, role: str, now=None) -> dict:
         "cancelled_role": booking.cancelled_role or None,
         "cancel_reason": booking.cancel_reason or None,
         "cancel_note": booking.cancel_note or None,
+        "completion_requested_at": _iso(booking.completion_requested_at),
+        "completed_at": _iso(booking.completed_at),
+        "completed_services": sorted(s.code for s in booking.completed_services.all()),
+        "disputed_at": _iso(booking.disputed_at),
+        "dispute_reason": booking.dispute_reason or None,
+        "dispute_note": booking.dispute_note or None,
+        "closed_at": _iso(booking.closed_at),
+        # Staff outcome and reason are shown to both participants (who acted is not: staff stay anonymous).
+        "staff_outcome": booking.staff_outcome or None,
+        "staff_reason": booking.staff_reason or None,
+        "review": _review(booking, role),
         "arrival_code": _code_state(booking, now),
         "changes": [change_payload(c, role) for c in booking.changes.all()],
         "history": [
@@ -132,10 +143,25 @@ def booking_payload(booking: Booking, role: str, now=None) -> dict:
             "issue_code": role == "customer" and booking.status == Booking.Status.ARRIVED,
             "start": role == "worker" and booking.status == Booking.Status.ARRIVED,
             "cancel": booking.status in Booking.CANCELLABLE,
-            "propose_change": reserving and not pending,
+            "propose_change": booking.status in Booking.CHANGEABLE and not pending,
             "change_time": booking.status == Booking.Status.CONFIRMED,
+            "request_completion": role == "worker" and booking.status == Booking.Status.IN_PROGRESS,
+            "completion_blocked_by_change": role == "worker" and booking.status == Booking.Status.IN_PROGRESS and pending,
+            "confirm_completion": role == "customer" and booking.status == Booking.Status.COMPLETION_REQUESTED,
+            "raise_issue": role == "customer" and booking.status == Booking.Status.COMPLETION_REQUESTED,
+            "review": role == "customer" and booking.status == Booking.Status.COMPLETED and not booking.reviews.exists(),
         },
     }
+
+
+def _review(booking: Booking, role: str) -> dict | None:
+    """The job's review: always to its author; to the worker only while it is not hidden."""
+    from apps.reviews.services import review_payload
+
+    review = booking.reviews.first()
+    if review is None or (role == "worker" and review.hidden_at is not None):
+        return None
+    return review_payload(review, role)
 
 
 def booking_card(booking: Booking, role: str) -> dict:
@@ -148,6 +174,7 @@ def booking_card(booking: Booking, role: str) -> dict:
         "complete": (booking.terms.get("totals") or {}).get("complete", False),
         "quote_version": booking.quote_version, "invitation_id": str(booking.invitation_id),
         "worker_id": str(booking.worker_profile_id) if role == "customer" else None,
+        "review_submitted": booking.reviews.exists(),
     }
 
 
@@ -316,4 +343,46 @@ class ChangeDecisionView(APIView):
 
     def post(self, request, booking_id, change_id):
         services.decide_change(request.user, booking_id, change_id, self.action)
+        return _respond(request, booking_id)
+
+
+# --- Completion, disputes and reviews (M9) ----------------------------------------------------------------------
+
+
+@method_decorator(never_cache, name="dispatch")
+class RequestCompletionView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [BookingThrottle]
+
+    def post(self, request, booking_id):
+        services.request_completion(request.user, booking_id)
+        return _respond(request, booking_id)
+
+
+@method_decorator(never_cache, name="dispatch")
+class ConfirmCompletionView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [BookingThrottle]
+
+    def post(self, request, booking_id):
+        services.confirm_completion(request.user, booking_id)
+        return _respond(request, booking_id)
+
+
+class IssueSerializer(StrictFieldsMixin, serializers.Serializer):
+    reason = serializers.ChoiceField(choices=Booking.DisputeReason.choices)
+    note = serializers.CharField(min_length=3, max_length=500, trim_whitespace=True)
+
+
+@method_decorator(never_cache, name="dispatch")
+class RaiseIssueView(APIView):
+    """POST {reason, note} — the customer does not confirm completion; staff review the dispute."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [BookingThrottle]
+
+    def post(self, request, booking_id):
+        serializer = IssueSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        services.raise_issue(request.user, booking_id, **serializer.validated_data)
         return _respond(request, booking_id)

@@ -1,0 +1,10 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Hide review</h1>
+<p>Rating {{ review.rating }}/5 · "{{ review.text }}"</p>
+<p>The original text is kept unchanged. A hidden review is no longer shown to the worker and is excluded from every rating and count; its author still sees it, marked as hidden.</p>
+<form method="post">{% csrf_token %}
+  {{ form.as_p }}
+  <input type="submit" value="Hide review">
+</form>
+{% endblock %}
