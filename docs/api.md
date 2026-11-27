@@ -1,7 +1,7 @@
 # Kaam Madad — API Contracts
 
 All endpoints are under `/api/v1/`, return JSON, and are served from the same origin as the web app.
-Implemented through **M7**. Planned endpoint families for later modules are listed in
+Implemented through **M8**. Planned endpoint families for later modules are listed in
 [requirements.md §10](requirements.md#10-api-contracts-and-screen-inventory) and are **not** implemented.
 
 ## Conventions
@@ -22,9 +22,9 @@ a field use `non_field_errors`). `details` holds optional non-sensitive context.
 |---|---|---|
 | 400 | Invalid input or rejected action | `validation_error`, `invalid_credentials`, `code_incorrect`, `code_expired`, `no_active_code`, `parse_error` |
 | 401 | No valid session (log in) — header `WWW-Authenticate: Session` | `not_authenticated` |
-| 403 | Signed in / identified but not allowed | `permission_denied`, `csrf_failed`, `account_inactive`, `worker_role_required`, `customer_role_required`, `marketplace_role_required`, `worker_only`, `customer_only` |
+| 403 | Signed in / identified but not allowed | `permission_denied`, `csrf_failed`, `account_inactive`, `worker_role_required`, `customer_role_required`, `marketplace_role_required`, `worker_only`, `customer_only`, `not_allowed_for_role` |
 | 404 | Unknown resource or `/api/` path | `not_found` |
-| 409 | Conflicts with current state | `already_authenticated`, `phone_already_confirmed`, `invitation_already_active`, `invitation_closed`, `conversation_closed`, `no_quote_draft`, `quote_not_current`, `check_not_needed` |
+| 409 | Conflicts with current state | `already_authenticated`, `phone_already_confirmed`, `invitation_already_active`, `invitation_closed`, `conversation_closed`, `no_quote_draft`, `quote_not_current`, `check_not_needed`, `job_already_booked`, `invitation_booked`, `quote_expired`, `quote_not_ready`, `invitation_not_active`, `schedule_conflict`, `worker_not_eligible`, `idempotency_key_reused`, `booking_state_conflict`, `cancel_not_allowed`, `worker_has_job_in_progress`, `change_pending`, `change_not_pending`, `time_change_not_allowed` |
 | 429 | Rate limited (`Retry-After` header; `details.retry_after_seconds`) | `throttled`, `resend_too_soon`, `send_limit_reached`, `too_many_attempts` |
 | 500 / 503 | Server error / not ready or provider unavailable | `server_error`, `service_not_ready`, `phone_verification_unavailable` |
 
@@ -525,7 +525,9 @@ Workers still cannot open `/jobs/…` (`403`).
   row lock on the request while sending.
 - Declining or withdrawing frees the slot. Inviting again, even the same worker, creates a **new** invitation ID.
 - Closed invitations stay as history.
-- An invitation never reserves time or confirms a booking (M8).
+- An invitation never reserves time. Accepting a quote creates a booking (M8); the invitation stays `active` while
+  booked (messages continue). Payloads carry `booking: {id, status}`, and cancelling the booking closes the
+  invitation as `cancelled`.
 
 ## Conversations, quotes and agreement gaps (M7)
 
@@ -652,6 +654,11 @@ Every checker finding must quote its **source statements**. A finding whose quot
 input is dropped. Each finding is tied to that quote version.
 
 `check.status` is one of:
+- `running` (M8): an attempt is in progress, and acceptance waits. Every run gets a new attempt ID. The provider
+  is called outside any transaction. The result is saved only if, under a row lock, the same attempt is still
+  current, the version is still the submitted one and it has not been accepted; late or stale results are
+  discarded. A run still `running` after `AGREEMENT_CHECK_STALE_SECONDS` (180) is shown as `unavailable` with
+  `failure: "stalled"`, so it can be re-run or reviewed manually.
 - `passed`: the check ran and found nothing.
 - `findings`: the check found points to clarify.
 - `unavailable`: the checker could not run. **This is never shown as a pass.** `check.failure` holds the error
@@ -666,9 +673,13 @@ input is dropped. Each finding is tied to that quote version.
 - **Manual review** (customer only, only when the check is `unavailable`): `POST …/quotes/{id}/manual-review/`.
   It is recorded as a manual review, not as a passed check.
 - **Resolve a point:** `POST …/quotes/{id}/findings/{finding_id}/resolve/`
-  `{"resolution": "clarified"|"not_a_conflict", "note": "what was agreed" (3–500)}`.
-  - A point cannot be dismissed without a note. Who resolved it, their role and when are recorded.
-  - If the agreed price or terms change, the worker must send a new version; the new version is checked again.
+  `{"resolution": "terms_confirmed"|"terms_changed", "note": "what was agreed" (3–500)}`.
+  - `terms_confirmed`: the version as written is what both meant, so the point is resolved.
+  - `terms_changed`: the clarification changed price, scope, materials or timing. The point is recorded, but
+    **this version stays blocked** (`revision_required`) until the worker submits a revised quote, which is
+    checked again.
+  - A point cannot be dismissed without a note. Who resolved it, their role and when are recorded, and kept
+    with that version.
   - Older and superseded versions return `409 quote_not_current`.
 
 ```json
@@ -683,16 +694,182 @@ Codes are `materials_responsibility`, `quantity_mismatch`, `price_basis`, `visit
 `timing_mismatch`, `other` and the two rule codes. Blocking points stop readiness until they are resolved; notes
 only add a warning.
 
-### Readiness (hand-off to M8)
+### Readiness (used by M8 acceptance)
 
 `GET …/readiness/` →
 
 ```json
-{"invitation_id": "…", "quote_id": "…", "version": 2, "expires_at": "…Z", "ready": true, "blocking": [], "warnings": []}
+{"invitation_id": "…", "quote_id": "…", "version": 2, "expires_at": "…Z", "ready": true, "blocking": [], "warnings": [],
+ "booking_id": null}
 ```
 
-`blocking` codes are `invitation_not_active`, `no_quote`, `quote_not_submitted`, `quote_superseded`,
-`quote_expired`, `unresolved_findings`, `automated_check_not_run`, `automated_check_unavailable` (until the
-customer's manual review) and `worker_not_eligible`. `warnings` codes are `open_notes` and `unknown_amounts`.
+`blocking` codes are `already_booked`, `invitation_not_active`, `no_quote`, `quote_not_submitted`,
+`quote_superseded`, `quote_expired`, `unresolved_findings`, `revision_required`, `automated_check_not_run`,
+`automated_check_running`, `automated_check_unavailable` (until the customer's manual review) and
+`worker_not_eligible`. `warnings` codes are `open_notes` and `unknown_amounts`.
 
-M7 ends at **"Ready for customer acceptance"**. Acceptance, booking, reservation and arrival codes are M8.
+A ready version can be accepted with `POST /bookings/` (below). The conversation header also carries
+`booking: {id, status}`.
+
+## Bookings, arrival codes and changes (M8)
+
+Everything lives under `/bookings/`. Only the booking's customer and its assigned worker can see or act on a
+booking. Anyone else gets `404` (the booking's existence is not revealed). An action that belongs to the other
+participant returns `403 not_allowed_for_role`.
+
+**Rate limits:**
+- `booking_user`: 300/hour per account, for writes.
+- `arrival_code_issue_user`: 10/hour.
+- `arrival_code_verify_user`: 20/hour.
+
+### Accept a quote (BK-01, BK-03)
+
+`POST /bookings/` (customer only) with:
+
+```json
+{"invitation_id": "…", "quote_id": "…", "version": 2, "idempotency_key": "<uuid made on the device>"}
+```
+
+It returns `201` with the Booking (`created: true`).
+
+**Retries and keys:**
+- **A retry with the same key returns `200` with the same booking** (`created: false`), whatever happened to it
+  since.
+- The same key sent with a different invitation or quote is `409 idempotency_key_reused` (`details.booking_id`).
+- The app keeps the key until the outcome is known. After a dropped connection it re-reads the conversation
+  (`booking`) before offering "accept" again.
+
+**One transaction, locks taken in this order** (shared with M6/M7): job → invitation → quote → worker profile →
+worker account. Each row is re-read under its lock. Then the server checks:
+
+| Check | Error (`409` unless noted, with the current state in `details`) |
+|---|---|
+| You own the job | `404` |
+| No other booking for the job | `job_already_booked` (`booking_id`) |
+| The invitation is still active | `invitation_not_active` (`invitation_status`) |
+| This exact version is the current one | `quote_not_current` (`current_quote_id`, `current_version`) |
+| The quote has not expired | `quote_expired` (`expires_at`) |
+| M7 readiness: no open points, check finished, nothing "terms changed" | `quote_not_ready` (`blocking`) |
+| `worker_eligibility(...).can_take_jobs` | `worker_not_eligible` |
+| No overlapping booking of that worker, using `[start, end)` (adjacent slots are fine) | `schedule_conflict` |
+
+**Accepting work while paused:** a worker who has paused new requests can still be booked for a quote they
+sent. The pause controls new invitations only.
+
+**Database guarantees (PostgreSQL)** back these checks:
+- one non-cancelled booking per job;
+- one booking per acceptance key per customer;
+- an **exclusion constraint** on `(worker, tstzrange(start, end, '[)'))` while the booking is
+  confirmed, arrived or in progress;
+- at most one job in progress per worker.
+
+Tests on real concurrent connections cover:
+- two customers accepting overlapping slots at once (one booking);
+- a double tap with one key (one booking);
+- accept against withdrawal;
+- accept against a revision.
+
+**What changes after acceptance:**
+- **Quotes freeze.** On the booked job, draft save or discard, submit, re-check, resolve and manual review all
+  return `409 job_already_booked` (`booking_id`).
+- **Invitations:**
+  - new invitations return `409 job_already_booked`;
+  - withdraw and decline return `409 invitation_booked` (`booking_id`), so the user is sent to the booking.
+- **Messages continue.**
+- **Address:** the exact address and access notes go to the assigned worker on the booking only, never in
+  conversation or invitation payloads.
+
+### Booking
+
+- `GET /bookings/?status=` → paginated cards, for the customer's own bookings or the worker's assigned ones.
+- `GET /bookings/{id}/` →
+
+```json
+{"id": "…", "status": "confirmed", "role": "worker", "invitation_id": "…", "job_id": null, "quote_id": "…", "quote_version": 2,
+ "start_at": "…Z", "end_at": "…Z", "timezone": "Asia/Karachi",
+ "terms": {"scope": "…", "quantity": 2, "labour_amount": "600.00", "…": "…", "totals": {…}, "source": {"kind": "quote", "version": 2}},
+ "accepted_terms": {"…same terms…", "quote_id": "…", "version": 2, "accepted_at": "…Z",
+                    "check": {"status": "passed", "provider": "fixture", "simulated": true, "manual_review_at": null},
+                    "resolutions": [{"code": "materials_responsibility", "resolution": "terms_confirmed", "note": "…"}]},
+ "terms_changed": false, "job": {…shared summary…},
+ "address": {"address": "…", "access_notes": "…"},
+ "counterpart": {"role": "customer"},
+ "arrived_at": null, "started_at": null, "cancelled_at": null, "cancelled_role": null, "cancel_reason": null, "cancel_note": null,
+ "arrival_code": {"active": true, "expires_at": "…Z", "attempts_remaining": 5, "expired": false, "locked": false, "used_at": null},
+ "changes": [...], "history": [{"kind": "confirmed", "to_status": "confirmed", "actor_role": "customer", "at": "…Z"}],
+ "actions": {"arrive": true, "issue_code": false, "start": false, "cancel": true, "propose_change": true, "change_time": true}}
+```
+
+**Field notes:**
+- `accepted_terms` never changes; the model refuses to overwrite it. `terms` are the terms in effect.
+- `address`:
+  - the customer always sees their own address;
+  - the worker sees it only while the booking is confirmed, arrived or in progress;
+  - otherwise it is `null`.
+- `counterpart`: for the customer it is the worker's opaque reference, trade and identity status (labelled when
+  simulated). The worker never receives the customer's identity.
+- `arrival_code`: whether a code is active, for both roles. **It never contains the code or its digest.**
+
+### Arrival, code and start (BK-04, BK-05)
+
+The booking moves **Confirmed → Arrived → In progress**.
+
+- `POST /bookings/{id}/arrive/` (assigned worker only): `confirmed` → `arrived`. A retry is harmless.
+- `POST /bookings/{id}/arrival-code/` (owning customer only; only when `arrived`) returns the Booking plus
+  `"code": {"value": "482913", "expires_at": "…Z"}`.
+  - **This response is the only place the code appears** (`Cache-Control: no-store`).
+  - The code is six digits from `secrets`. Only `HMAC-SHA256(SECRET_KEY-derived key, booking_id:code)` is stored.
+  - It expires after `ARRIVAL_CODE_TTL_MINUTES` (15).
+  - Issuing again invalidates the previous code.
+  - Codes are never logged and never sent to read-aloud.
+- `POST /bookings/{id}/start/` `{"code": "482 913"}` (assigned worker only; spaces are ignored):
+  - A wrong code returns `400 code_incorrect` (`details.attempts_remaining`). **The failed attempt is saved even
+    though the call fails.**
+  - After `ARRIVAL_CODE_MAX_ATTEMPTS` (5) wrong attempts the response is `429 too_many_attempts`, and the
+    customer must issue a new code.
+  - An expired code is `400 code_expired`; no code at all is `400 no_active_code`.
+  - On success the code is used once and the booking becomes `in_progress`.
+  - **Starts are serialised per worker:** if another of the worker's jobs is in progress, the response is
+    `409 worker_has_job_in_progress`, even when the planned times do not overlap.
+  - Any other status gives `409 booking_state_conflict`.
+
+The code confirms arrival for this booking only. It does not prove identity, location, skills or safety, and
+the customer screen says so.
+
+### Cancellation (before start)
+
+`POST /bookings/{id}/cancel/` `{"reason": "not_available"|"changed_plans"|"no_show"|"other", "note"?}`:
+- Either participant can cancel while the booking is `confirmed` or `arrived`. `other` needs a note.
+- The cancellation:
+  - frees the worker's time;
+  - closes the invitation (status `cancelled`), so its quote can never be accepted again;
+  - invalidates live codes;
+  - closes pending changes.
+- After the start it returns `409 cancel_not_allowed`; the issue and dispute route is M9.
+- The customer can then invite again from the request (a new invitation and conversation).
+
+### Changes after booking (QT-04)
+
+- `POST /bookings/{id}/changes/` proposes the full set of terms (same fields as a quote draft) plus a `note`
+  (3–500). The proposer's approval is recorded at once.
+- `POST /bookings/{id}/changes/{change_id}/approve/` or `/reject/` is for the other participant only.
+  `/withdraw/` is for the proposer only.
+- **The terms in effect change only when both have approved.** The change keeps `old_terms` and `new_terms`;
+  `accepted_terms` keeps the original agreement.
+- One pending change at a time (`409 change_pending`).
+- A proposal that changes nothing returns `400 non_field_errors: no_change`.
+- Time changes:
+  - only before arrival (`409 time_change_not_allowed`);
+  - re-checked for overlaps when proposed and again, under the worker lock, when approved
+    (`409 schedule_conflict`).
+- Scope and price changes are also allowed during the job (for example a third fan).
+
+### Hand-off to M9
+
+M9 receives a booking in `in_progress` with:
+- `accepted_terms` (the exact quote version and its approval record);
+- the terms in effect;
+- every approved change;
+- the full status history in `history`.
+
+Completion, disputes and reviews are M9.

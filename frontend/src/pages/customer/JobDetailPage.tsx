@@ -1,4 +1,4 @@
-import { ArrowLeft, Pencil, Users } from "lucide-react";
+import { ArrowLeft, CalendarCheck, Pencil, Users } from "lucide-react";
 import { useSearchParams, useParams } from "react-router";
 
 import * as jobsApi from "../../api/jobs";
@@ -51,7 +51,12 @@ export function JobDetailPage() {
       <OriginalInput job={job} />
 
       <div className="grid gap-2">
-        {confirmed && (
+        {confirmed && job.booking && (
+          <ButtonLink to={`/bookings/${job.booking.id}`} fullWidth icon={<CalendarCheck className="size-5" aria-hidden />}>
+            {t("booking.open")} · {t(`booking.status.${job.booking.status}`)}
+          </ButtonLink>
+        )}
+        {confirmed && !job.booking && (
           <ButtonLink to={`/customer/requests/${job.id}/workers`} fullWidth icon={<Users className="size-5" aria-hidden />}>
             {t("rec.cta")}
           </ButtonLink>

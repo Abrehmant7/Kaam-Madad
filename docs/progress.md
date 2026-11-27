@@ -17,10 +17,169 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M5 Customer and job requests | ✅ Complete (27 Nov 2026) — fixture and live voice checks recorded |
 | M6 Recommendations and invitations | ✅ Complete (27 Nov 2026) |
 | M7 Communication and agreements | ✅ Complete (27 Nov 2026) — fixture walk-through; live Gemini agreement check verified with `gemini-3-flash-preview` |
-| M8 Booking and arrival | ⬜ Next |
-| M9 Completion and feedback | ⬜ Not started |
+| M8 Booking and arrival | ✅ Complete (27 Nov 2026) — two-session walk-through with fixture AI; PostgreSQL concurrency tests |
+| M9 Completion and feedback | ⬜ Next |
 | M10 Reporting and moderation | ⬜ Not started |
 | M11 Integration and delivery | ⬜ Not started |
+
+---
+
+## M8 Quote acceptance, booking and arrival — complete (27 Nov 2026)
+
+### Delivered
+
+- [x] **M7 hand-off fixes** (migration `conversations.0002`):
+  - Resolutions are now **"Existing quote terms confirmed"** or **"Terms changed"**. "Terms changed" keeps that
+    version blocked (`revision_required`) until the worker sends a revised quote. Sources and resolution history
+    stay with the version.
+  - The agreement check is tracked as an **attempt**: it shows `running`, acceptance waits, and the provider is
+    called outside transactions.
+  - Results are saved only if the same attempt, version and unaccepted quote are still current under a row lock;
+    late or stale results are discarded. A run that stalls becomes "could not run" (re-run or manual review).
+  - An accepted quote and its approval record can no longer change.
+- [x] **Acceptance** `POST /bookings/` (customer only):
+  - Takes the invitation ID, the quote ID and version, and an idempotency key.
+  - Locks job → invitation → quote → worker profile → worker account, then re-checks ownership, the active
+    invitation, the exact current version, expiry, M7 readiness and `can_take_jobs` (pause ignored).
+  - Rejects `[start, end)` overlaps.
+  - Stores one booking with an immutable terms snapshot.
+  - A retry with the same key returns the same booking. Stale, expired, blocked or conflicting acceptances get an
+    actionable `409` with the current state.
+- [x] **PostgreSQL guarantees** (migration `bookings.0001`, `btree_gist`):
+  - one non-cancelled booking per job;
+  - an exclusion constraint so a worker's open bookings never overlap;
+  - one job in progress per worker;
+  - one booking per acceptance key per customer.
+- [x] **After booking:**
+  - No new invitations or quote versions. Withdraw and decline send the user to the booking
+    (`invitation_booked`).
+  - Messages continue.
+  - The exact address goes to the assigned worker on the booking only.
+- [x] **Confirmed → Arrived → In progress:**
+  - The worker reports arrival.
+  - The customer issues a 6-digit code: `secrets`, stored only as an HMAC digest, 15 min, 5 wrong attempts
+    (persisted), rate-limited, reissue invalidates, single use, shown only in the issue response.
+  - The worker enters it. Starts are serialised per worker.
+- [x] **Cancellation before start** (either person, with a reason): releases the slot, closes the invitation
+  (`cancelled`) so its quote cannot be reused, invalidates codes and voids pending changes.
+- [x] **Change proposals (QT-04):**
+  - Old vs proposed terms; they apply only after the other person approves.
+  - Time changes only before arrival, with the overlap re-checked under the worker lock.
+  - The original agreement stays in `accepted_terms`.
+- [x] **Status history** (`BookingEvent`) and the M9 hand-off: a booking in `in_progress` with its accepted terms,
+  terms in effect, changes and history.
+- [x] **Frontend:**
+  - Accept review (exact terms, time, known charges, unknown parts, what happens next).
+  - The booking detail screen for both roles (status steps, address, terms and original, arrival code, changes,
+    cancellation, history).
+  - "My bookings" on both dashboards, and booking links from the request, invitation and conversation screens.
+  - After an uncertain network result, the screen reloads booking state before offering acceptance again.
+
+### Checks (27 Nov 2026)
+
+| Check | Result |
+|---|---|
+| Backend tests (real PostgreSQL) | ✅ **323 passed**: 26 new for M8, including **4 PostgreSQL concurrency tests** (two customers accepting overlapping slots ×3 → one booking each time; a double tap with one key → one booking; accept vs withdrawal ×3; accept vs revision ×3) |
+| `check`, `makemigrations --check`, `migrate` | ✅ No issues; migrations applied (including `btree_gist`) |
+| Frontend typecheck / tests / build | ✅ No errors / **88 passed** (8 new) / built |
+
+Backend tests cover:
+- **Acceptance:**
+  - exact terms, and a retry returning the same booking;
+  - other keys → `job_already_booked`; reused key → `idempotency_key_reused`;
+  - stale, expired and blocked quotes;
+  - a paused worker can be booked; an ineligible worker cannot;
+  - overlap refused, adjacent slots allowed.
+- **Frozen after booking:** quotes, withdraw, decline and new invitations are refused, while messages still work.
+- **Privacy:** the address goes only to the booked worker and is gone after cancellation; other accounts get 404
+  on every booking endpoint; accepted terms cannot be overwritten.
+- **M7 fixes:**
+  - "terms changed" blocks until a revised version, and v2 can then be accepted;
+  - "terms confirmed" resolves;
+  - a running check blocks, and a stalled one allows manual review;
+  - a late result from an old attempt, or after acceptance, is discarded.
+- **Arrival codes:**
+  - only after arrival, customer-only, and never in any response or log;
+  - wrong attempts persist and lock the code at 5; reissue invalidates the old code;
+  - expired and missing codes; a single successful start;
+  - a second job cannot start while one is in progress.
+- **Cancellation:** releases the slot, closes the invitation, the old quote cannot be reused, and the customer can
+  invite again; it is refused after the start.
+- **Changes:**
+  - both approvals are needed, and the original is kept;
+  - time changes re-check overlaps when proposed and when approved;
+  - no time change after arrival; "no change" is rejected;
+  - a scope change during the job works, and the proposer can withdraw.
+
+### Two-session walk-through (three Chrome sessions at 360 px, real backend and PostgreSQL)
+
+All AI providers were **fixtures** in this run; no live AI calls were made during M8. A **fresh fictional
+rehearsal worker** was used for each run (03009990197; earlier runs 0198 and 0199). Each is paused afterwards, so
+the demo workers 0101–0104 are untouched.
+
+1. **Acceptance:** the customer (Urdu) opened the conversation and tapped **Review and accept**. The review showed
+   the time, known charges, "nothing unknown" and that the address will be shared. **Accept and book** opened the
+   booking.
+2. **Worker** (English, second browser):
+   - **My bookings** showed the booking, which included the exact address. The conversation API still had no
+     address.
+   - Decline and a new quote on the booked job returned `409`.
+   - **I have arrived**.
+3. **Code:**
+   - The customer saw the arrival by polling and revealed a 6-digit code. The worker's booking response did not
+     contain it.
+   - A third account got `404` on the booking, code and start.
+4. **Start:** the worker entered a wrong code ("Attempts left: 4"), then the right one, and the booking moved to
+   **In progress**. The code was then used and inactive.
+5. **Change during the job:** the worker proposed a third fan. The customer saw "now 2 / proposed 3" and the totals
+   (PKR 1,200 → 1,800), then approved. The terms in effect became 3 / 1,800, and the original stayed 2 / 1,200.
+6. **Cancellation:**
+   - A second booking was cancelled by the worker with a reason. Accepting the old quote again →
+     `409 invitation_not_active`, and the invitation now shows `cancelled`.
+   - Another customer then booked the same slot → `201`.
+7. **Overlap and one job at a time:** an overlapping acceptance → `409 schedule_conflict`. Starting another job
+   while one was in progress → `409 worker_has_job_in_progress`.
+8. **Layouts:** no horizontal overflow on any of the 10 screens.
+
+### Issues found and fixed
+
+- The quote panel treated a missing `booking_id` (older payloads) as "booked"; it now checks for a real ID.
+- The worker's code was sent with the spaces people type ("482 913"); it is now sent as digits (the server also
+  strips spaces).
+- The wrong-code count now uses M2's detail name `attempts_remaining`, so the existing Urdu/English message
+  shows the number.
+- **Urdu bidi:**
+  - amounts in the acceptance breakdown are isolated as LTR;
+  - generated lines in the change comparison ("فی عدد PKR 600 × 2 …") follow the UI direction instead of the
+    dominant script.
+
+### Known limitations
+
+- **Arrival:** "I have arrived" is self-reported, with no time window or GPS. The customer's code is what
+  confirms it, for this booking only.
+- **Code display:** the code is shown once. After leaving the screen the customer issues a new one, and the old
+  one stops working.
+- **Updates:** booking screens refresh by polling (10 s). There are no push notifications.
+- **Booking time:** the time is the accepted quote's start/end. There is no separate "60-minute suggestion"
+  window editor; both people agree the time through the quote (and later through a change).
+- **Changes:** a proposal carries the full set of terms; only one change can be pending at a time.
+- **Workers stuck "in progress":** a worker with a job in progress cannot start another job until M9 adds
+  completion. This applies to the three rehearsal workers in the development database, and to any demo worker
+  whose booking you take to "In progress".
+- **Staff tools:** bookings are read-only in Django Admin (staff actions come with M9/M10).
+
+### Environment needed
+
+The same as M7; run `python manage.py migrate`. The database user must be able to create the `btree_gist`
+extension, which is true for the Docker database. The optional settings are `ARRIVAL_CODE_TTL_MINUTES`,
+`ARRIVAL_CODE_MAX_ATTEMPTS` and `AGREEMENT_CHECK_STALE_SECONDS`.
+
+### Next module
+
+**M9 Completion and feedback:** completion requested → confirmed or disputed, from an `in_progress` booking.
+- Extend the reserving statuses and constraints.
+- Use the same lock order.
+- Reviews only after confirmed completion.
 
 ---
 

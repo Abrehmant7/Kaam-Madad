@@ -1,14 +1,15 @@
 import { apiRequest } from "./client";
-import type { SharedSummary } from "./invitations";
+import type { BookingLink, SharedSummary } from "./invitations";
 
 const base = (id: string) => `/conversations/${id}`;
 
 export interface ConversationHeader {
-  invitation: { id: string; status: "active" | "declined" | "withdrawn"; created_at: string; closed_at: string | null };
+  invitation: { id: string; status: "active" | "declined" | "withdrawn" | "cancelled"; created_at: string; closed_at: string | null };
   role: "customer" | "worker";
   can_write: boolean;
   job: SharedSummary;
   job_id: string | null;
+  booking: BookingLink | null;
   counterpart: { role: "worker"; worker_id: string; trade: string | null } | { role: "customer" };
 }
 
@@ -35,11 +36,14 @@ export interface Finding {
   ask: "worker" | "customer" | "both";
   sources: { kind: "request" | "message" | "quote"; ref: string; text: string }[];
   status: "open" | "resolved";
-  resolution: "clarified" | "not_a_conflict" | null;
+  resolution: Resolution | null;
   resolution_note: string | null;
   resolved_role: "customer" | "worker" | null;
   resolved_at: string | null;
 }
+
+/** "Existing terms confirmed" resolves the point; "terms changed" keeps the version blocked until a revised quote. */
+export type Resolution = "terms_confirmed" | "terms_changed";
 
 export type Materials = "included" | "worker_extra" | "customer" | "none";
 export type VisitFeeTreatment = "none" | "charged" | "waived_if_hired" | "included";
@@ -69,7 +73,14 @@ export interface Quote extends QuoteTerms {
   superseded_at: string | null;
   expires_at: string | null;
   expired: boolean;
-  check: { status: "not_run" | "passed" | "findings" | "unavailable"; provider: string | null; simulated: boolean; checked_at: string | null; failure: string | null };
+  check: {
+    status: "not_run" | "running" | "passed" | "findings" | "unavailable";
+    provider: string | null;
+    simulated: boolean;
+    checked_at: string | null;
+    started_at: string | null;
+    failure: string | null;
+  };
   manual_review_at: string | null;
   findings: Finding[];
   issues: Record<string, string[]>;
@@ -83,6 +94,7 @@ export interface Readiness {
   ready: boolean;
   blocking: string[];
   warnings: string[];
+  booking_id: string | null;
 }
 
 export interface QuotesListing {
@@ -126,7 +138,7 @@ export const submitDraft = (id: string) =>
 export const rerunCheck = (id: string, quoteId: string) =>
   apiRequest<Quote & { readiness: Readiness }>(`${base(id)}/quotes/${quoteId}/check/`, { method: "POST", timeoutMs: 60_000 });
 
-export const resolveFinding = (id: string, quoteId: string, findingId: string, resolution: "clarified" | "not_a_conflict", note: string) =>
+export const resolveFinding = (id: string, quoteId: string, findingId: string, resolution: Resolution, note: string) =>
   apiRequest<Quote & { readiness: Readiness }>(`${base(id)}/quotes/${quoteId}/findings/${findingId}/resolve/`, {
     method: "POST",
     body: { resolution, note },

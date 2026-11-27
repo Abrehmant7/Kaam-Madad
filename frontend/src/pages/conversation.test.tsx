@@ -20,7 +20,7 @@ const SHARED = {
 };
 const header = (role: "customer" | "worker", status = "active") => ({
   invitation: { id: "inv-1", status, created_at: "2030-01-01T10:00:00Z", closed_at: status === "active" ? null : "2030-01-02T10:00:00Z" },
-  role, can_write: status === "active", job: SHARED, job_id: role === "customer" ? "job-1" : null,
+  role, can_write: status === "active", job: SHARED, job_id: role === "customer" ? "job-1" : null, booking: null,
   counterpart: role === "customer" ? { role: "worker", worker_id: "00000000-0000-4000-8000-00000000a7f3", trade: "electrician" } : { role: "customer" },
 });
 const message = (id: string, overrides: Record<string, unknown> = {}) => ({
@@ -44,11 +44,11 @@ const quote = (overrides: Record<string, unknown> = {}) => ({
   start_at: "2030-01-10T12:00:00Z", end_at: "2030-01-10T14:00:00Z",
   totals: { labour_total: "1200.00", materials_total: null, visit_total: null, known_total: "1200.00", unknown: [], complete: true },
   submitted_at: "2030-01-01T11:00:00Z", superseded_at: null, expires_at: "2030-01-02T11:00:00Z", expired: false,
-  check: { status: "findings", provider: "fixture", simulated: true, checked_at: "2030-01-01T11:00:01Z", failure: null },
+  check: { status: "findings", provider: "fixture", simulated: true, checked_at: "2030-01-01T11:00:01Z", started_at: null, failure: null },
   manual_review_at: null, findings: [finding()], issues: {}, ...overrides,
 });
 const readiness = (ready: boolean, blocking: string[] = []) => ({
-  invitation_id: "inv-1", quote_id: "q-1", version: 1, expires_at: "2030-01-02T11:00:00Z", ready, blocking, warnings: [],
+  invitation_id: "inv-1", quote_id: "q-1", version: 1, expires_at: "2030-01-02T11:00:00Z", ready, blocking, warnings: [], booking_id: null,
 });
 const listing = (current: unknown = null, ready = false, blocking: string[] = ["no_quote"], history: unknown[] = []) => ({
   current, draft: null, history, readiness: readiness(ready, blocking),
@@ -148,7 +148,7 @@ describe("quotes and agreement gaps", () => {
       [`GET ${BASE}/quotes/`]: () =>
         jsonResponse(resolved
           ? listing(quote({ check: { status: "findings", provider: "fixture", simulated: true, checked_at: "x", failure: null },
-              findings: [finding({ status: "resolved", resolution: "clarified", resolution_note: "Customer buys the fans", resolved_role: "worker" })] }), true, [])
+              findings: [finding({ status: "resolved", resolution: "terms_confirmed", resolution_note: "Customer buys the fans", resolved_role: "worker" })] }), true, [])
           : listing(quote(), false, ["unresolved_findings"])),
       [`GET ${BASE}/messages/`]: jsonResponse({ results: [], has_more_before: false }),
       [`POST ${BASE}/quotes/q-1/findings/f-1/resolve/`]: () => { resolved = true; return jsonResponse({ ...quote(), readiness: readiness(true) }); },
@@ -169,7 +169,7 @@ describe("quotes and agreement gaps", () => {
     await userEvent.type(screen.getByLabelText(new RegExp(en["quote.resolution.noteLabel"].replace(/[()]/g, "\\$&"))), "Customer buys the fans");
     await userEvent.click(save);
     expect(await screen.findByText(en["quote.ready.title"])).toBeInTheDocument();
-    expect(calls.find((call) => call.path.endsWith("/resolve/"))?.body).toEqual({ resolution: "clarified", note: "Customer buys the fans" });
+    expect(calls.find((call) => call.path.endsWith("/resolve/"))?.body).toEqual({ resolution: "terms_confirmed", note: "Customer buys the fans" });
   }, 15000);
 
   it("an automatic check that could not run is never shown as passed; the customer can review manually", async () => {

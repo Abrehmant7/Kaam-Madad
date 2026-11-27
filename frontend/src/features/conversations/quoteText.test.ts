@@ -12,7 +12,7 @@ const quote = {
   visit_fee_treatment: "none", exclusions: "", start_at: "2030-01-10T12:00:00Z", end_at: "2030-01-10T14:00:00Z",
   totals: { labour_total: "1200.00", materials_total: null, visit_total: null, known_total: "1200.00", unknown: ["materials"], complete: false },
   submitted_at: null, superseded_at: null, expires_at: null, expired: false,
-  check: { status: "passed", provider: "fixture", simulated: true, checked_at: null, failure: null }, manual_review_at: null, findings: [], issues: {},
+  check: { status: "passed", provider: "fixture", simulated: true, checked_at: null, started_at: null, failure: null }, manual_review_at: null, findings: [], issues: {},
 } as Quote;
 const tFor = (resources: Record<string, string>) => ((key: string, params?: Record<string, string | number>) => interpolate(resources[key] ?? key, params)) as never;
 

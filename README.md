@@ -10,11 +10,12 @@ using Urdu text, spoken instructions, recognisable icons and guided choices.
 
 Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 
-> **Status: Modules M1–M7 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
+> **Status: Modules M1–M8 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
 > onboarding and identity check; customer job requests; recommendations and invitations; private conversations
-> and quotations). Customers describe a job and invite a matching worker. The two talk privately by text or voice
-> note, and the worker sends a structured quote. Contradictions are flagged for clarification until the quote is
-> ready for the customer to accept. Acceptance, bookings and reviews are **not** implemented yet.
+> and quotations; acceptance, booking and arrival). Customers describe a job and invite a matching worker. The
+> two talk privately, and the worker sends a structured quote. Contradictions are clarified, then the customer
+> accepts a specific version, which books the worker. On the day the worker enters the customer's one-time
+> arrival code, and the job moves to "In progress". Completion, reviews and reports are **not** implemented yet.
 > See [docs/progress.md](docs/progress.md).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
@@ -190,7 +191,8 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 | Customer job requests | **Implemented** (M5): voice/text description, review, confirmation, private photos |
 | Recommendations and invitations | **Implemented** (M6): rule-based matching with reasons, one active invitation per request |
 | Conversations, quotations, agreement check | **Implemented** (M7): private text and voice-note messages, structured versioned quotes, agreement check (Gemini or a labelled demo fixture) |
-| Acceptance, bookings, reviews, reports | Not implemented (M8–M10) |
+| Acceptance, bookings, arrival codes | **Implemented** (M8): booking from an accepted quote, no double-booking, one-time arrival code, cancellation and changes |
+| Completion, reviews, reports | Not implemented (M9–M10) |
 
 ## 6. Voice and AI (M3)
 
@@ -465,9 +467,11 @@ After pulling, from `backend/`: `python manage.py migrate` (adds the `conversati
    - Example conflict: the request says *"1200 روپے سامان سمیت"* (materials included), but the quote says the
      customer supplies the materials.
    - The check shows the exact statements that disagree, a short question, and who should answer.
-   - Clarify in the chat. Then either the worker sends a revised quote, or one of you records what was agreed
-     under **Save clarification**; a note is required.
-5. When nothing blocking is left, both see **Ready for customer acceptance**. Accepting and booking come in M8.
+   - Clarify in the chat, then record what was agreed under **Save clarification**; a note is required.
+     - **Existing quote terms confirmed**: the version as written is right, so the point is resolved.
+     - **Terms changed**: price, work, materials or time differ. This version stays blocked until the worker
+       sends a revised quote.
+5. When nothing blocking is left, both see **Ready for customer acceptance**. Accepting it is in §11.
 6. If the customer withdraws (or the worker declines), the conversation stays readable from the invitation
    history (**View conversation**), but nothing new can be sent.
 
@@ -490,7 +494,60 @@ or confirm they compared the quote themselves.
 - The automatic check receives the shared request summary, approved message texts and the quote terms only. It
   never receives the address, access notes, photos, audio or phone numbers.
 
-## 11. Checks and tests
+## 11. Accepting a quote, booking and arrival (M8)
+
+After pulling, from `backend/`: `python manage.py migrate`. This adds the `bookings` app and enables the
+PostgreSQL `btree_gist` extension, which the no-overlap constraint needs; the Docker database user is allowed to
+create it.
+
+### Demo: book, arrive, start
+
+1. **Customer:** in the conversation (§10), once the quote is ready, tap **Review and accept this quote / قیمت
+   دیکھیں اور منظور کریں**.
+   - The screen shows the version, the agreed time, the known charges, what is still unknown, and what happens
+     next.
+   - **Accept and book** opens the booking.
+   - If the connection drops, the app first checks whether the booking went through. Trying again cannot book
+     twice.
+2. **Worker:** **My bookings** on the dashboard → open the booking.
+   - The customer's exact address and access notes now appear here, and only here.
+   - On the day: **I have arrived**.
+3. **Customer:** the booking shows the arrival.
+   - Check that it is the booked worker (trade, reference and identity status are shown), then **Show the
+     arrival code**.
+   - The 6-digit code is shown once and is valid for 15 minutes. **Get a new code** replaces it.
+4. **Worker:** enter the code and tap **Start work**.
+   - A wrong code shows how many attempts are left (5 in all).
+   - The right code moves the booking to **In progress**.
+5. **Changes** (for example a third fan): either person can **Propose a change**. The other sees "now / proposed"
+   and approves or rejects. The terms in effect change only after both agree, and the original agreement stays
+   visible.
+   - The time can be changed only before the worker arrives, and only to a free slot.
+6. **Cancel** (before the work starts): either person, with a reason.
+   - The worker's time is freed, and the invitation and its quote are closed.
+   - The customer can invite someone again from the request.
+
+### Rules the server enforces
+
+- **Acceptance:**
+  - One customer-only action for one exact quote version, with an idempotency key.
+  - Locks are taken in a fixed order (job → invitation → quote → worker), and every condition is re-checked
+    under those locks. Stale, expired or blocked quotes get a clear `409` with the current state.
+- **No double-booking:** a worker's open bookings can never overlap. Back-to-back slots are fine. PostgreSQL
+  enforces this too.
+- **One job at a time:** a worker cannot start a second job while one is in progress, even if the planned times
+  do not overlap.
+- **After booking:**
+  - The quote and its approval record no longer change.
+  - No new invitations or quote versions, and withdraw/decline point to the booking.
+  - Messages continue.
+- **Arrival codes:**
+  - Created with secure randomness; only a keyed digest is stored.
+  - Shown only to the customer, only once; never sent in any worker response, log or read-aloud.
+  - 15 minutes, 5 wrong attempts, rate-limited.
+  - A code confirms arrival for this booking only. It is not an identity, location, skills or safety check.
+
+## 12. Checks and tests
 
 ```bash
 # Backend (from backend/, venv active) — runs against a real PostgreSQL test database
@@ -511,7 +568,7 @@ curl http://localhost:5173/api/v1/health/live/    # {"status":"ok"}
 curl http://localhost:5173/api/v1/health/ready/   # {"status":"ok","checks":{"database":"ok"}} or 503
 ```
 
-## 12. Production-like local run (same origin)
+## 13. Production-like local run (same origin)
 
 Builds the frontend and lets Django serve everything on one port, with production settings
 (HTTPS redirect disabled only because this local test uses plain HTTP):

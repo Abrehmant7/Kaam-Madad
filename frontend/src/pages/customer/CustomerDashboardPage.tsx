@@ -8,6 +8,7 @@ import { Ltr } from "../../components/Ltr";
 import { ButtonLink } from "../../components/ui/Button";
 import { PageLoader } from "../../components/ui/PageLoader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
+import { BookingList } from "../../features/bookings/BookingList";
 import { type JobCatalog, labeller, loadJobCatalog } from "../../features/jobs/catalog";
 import { textDir } from "../../features/jobs/text";
 import { formatDate, formatTime } from "../../features/jobs/time";
@@ -24,6 +25,7 @@ function RequestCard({ job, catalog }: { job: jobsApi.JobListItem; catalog: JobC
     <li className="space-y-2 rounded-xl border border-line p-3">
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone={draft ? "neutral" : "success"}>{draft ? t("jobs.status.draft") : t("jobs.status.confirmed")}</StatusBadge>
+        {job.booking && <StatusBadge tone="info">{t(`booking.status.${job.booking.status}`)}</StatusBadge>}
         <span className="font-bold">{task}</span>
       </div>
       {job.description && <p dir={textDir(job.description)} className="line-clamp-2 text-sm text-muted">{job.description}</p>}
@@ -70,6 +72,8 @@ export function CustomerDashboardPage() {
       <ButtonLink to={PATHS.newJob} fullWidth icon={<MessageSquarePlus className="size-5" aria-hidden />}>
         {t("jobs.describe.cta")}
       </ButtonLink>
+
+      <BookingList />
 
       <section aria-labelledby="requests-heading" className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
         <h2 id="requests-heading" className="flex items-center gap-2 text-lg font-bold">

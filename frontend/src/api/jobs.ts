@@ -1,3 +1,4 @@
+import type { BookingLink } from "./invitations";
 import { apiRequest } from "./client";
 import type { Page } from "./catalog";
 
@@ -64,6 +65,7 @@ export interface JobRequest {
   issues: Record<string, string[]>;
   ready_to_confirm: boolean;
   already_confirmed?: boolean;
+  booking: BookingLink | null;
 }
 
 export interface JobListItem {
@@ -78,6 +80,7 @@ export interface JobListItem {
   window_end: string | null;
   updated_at: string;
   confirmed_at: string | null;
+  booking: BookingLink | null;
 }
 
 export type DetailsPatch = Partial<Omit<JobDetails, "timezone">>;

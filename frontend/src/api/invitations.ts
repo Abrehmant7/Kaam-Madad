@@ -2,7 +2,9 @@ import type { Page } from "./catalog";
 import { apiRequest } from "./client";
 import type { JobRequest } from "./jobs";
 
-export type InvitationStatus = "active" | "declined" | "withdrawn";
+export type InvitationStatus = "active" | "declined" | "withdrawn" | "cancelled";
+/** M8: the booking made from an invitation (its quote was accepted). */
+export interface BookingLink { id: string; status: "confirmed" | "arrived" | "in_progress" | "cancelled" }
 export type DeclineReason = "not_available" | "too_far" | "not_my_work" | "other";
 
 /** What a worker may see about a request (no address, access notes, photos, recordings or customer identity). */
@@ -45,6 +47,7 @@ export interface CustomerInvitation {
   seen_at: string | null;
   closed_at: string | null;
   decline_reason: DeclineReason | null;
+  booking: BookingLink | null;
   created?: boolean;
 }
 
@@ -63,6 +66,7 @@ export interface WorkerInvitation {
   seen_at: string | null;
   closed_at: string | null;
   decline_reason: DeclineReason | null;
+  booking: BookingLink | null;
   job: SharedSummary;
 }
 

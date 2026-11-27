@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, EyeOff, MessagesSquare, Save, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { ArrowLeft, CalendarCheck, Eye, EyeOff, MessagesSquare, Save, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 
@@ -132,13 +132,18 @@ function Workers({ jobId, recs, catalog, history, reload }: {
             </StatusBadge>
           </div>
           <p className="text-sm text-muted">{t("rec.notABooking")}</p>
-          <ButtonLink to={`/conversations/${active.id}`} fullWidth icon={<MessagesSquare className="size-5" aria-hidden />}>
+          {active.booking && (
+            <ButtonLink to={`/bookings/${active.booking.id}`} fullWidth icon={<CalendarCheck className="size-5" aria-hidden />}>
+              {t("booking.open")} · {t(`booking.status.${active.booking.status}`)}
+            </ButtonLink>
+          )}
+          <ButtonLink to={`/conversations/${active.id}`} fullWidth variant={active.booking ? "secondary" : "primary"} icon={<MessagesSquare className="size-5" aria-hidden />}>
             {t("conv.open")}
           </ButtonLink>
-          <Button variant="secondary" loading={busy === "withdraw"} loadingLabel={t("onboarding.saving")} icon={<X className="size-5" aria-hidden />}
+          {!active.booking && <Button variant="secondary" loading={busy === "withdraw"} loadingLabel={t("onboarding.saving")} icon={<X className="size-5" aria-hidden />}
             onClick={() => void act("withdraw", () => invitationsApi.withdrawInvitation(jobId, active.id))}>
             {t("rec.active.withdraw")}
-          </Button>
+          </Button>}
         </section>
       )}
 

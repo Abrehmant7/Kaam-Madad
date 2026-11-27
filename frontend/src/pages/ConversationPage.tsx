@@ -1,4 +1,4 @@
-import { ArrowLeft, MessagesSquare } from "lucide-react";
+import { ArrowLeft, CalendarCheck, MessagesSquare } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useParams } from "react-router";
 
@@ -52,6 +52,14 @@ export function ConversationPage() {
         <p className="text-sm text-muted">{t("conv.privacy")}</p>
       </div>
       {!canWrite && <Alert tone="info">{t("conv.closedBody")}</Alert>}
+      {header.booking && header.booking.status !== "cancelled" && (
+        <Alert tone="success" title={t("conv.bookedTitle")}>
+          <p>{t("conv.bookedBody")}</p>
+          <ButtonLink to={`/bookings/${header.booking.id}`} className="mt-2" icon={<CalendarCheck className="size-5" aria-hidden />}>
+            {t("booking.open")} · {t(`booking.status.${header.booking.status}`)}
+          </ButtonLink>
+        </Alert>
+      )}
       <details className="rounded-2xl border border-line bg-surface p-3">
         <summary className="flex min-h-11 cursor-pointer items-center font-bold">{t("conv.jobDetails")}</summary>
         <div className="mt-3">
@@ -59,7 +67,8 @@ export function ConversationPage() {
         </div>
       </details>
 
-      <QuotePanel invitationId={header.invitation.id} role={header.role} canWrite={canWrite} refreshKey={refreshKey} />
+      <QuotePanel invitationId={header.invitation.id} role={header.role} canWrite={canWrite} refreshKey={refreshKey}
+        booked={Boolean(header.booking && header.booking.status !== "cancelled")} />
       <MessageThread invitationId={header.invitation.id} canWrite={canWrite} onActivity={bump} onClosed={closed} />
 
       <ButtonLink to={back} variant="secondary" fullWidth icon={<ArrowLeft className="size-5 rtl:-scale-x-100" aria-hidden />}>

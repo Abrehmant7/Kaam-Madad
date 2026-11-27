@@ -691,7 +691,7 @@ API contracts: [api.md § Conversations, quotes and agreement gaps](api.md#conve
   the finding of that version. A changed price or terms means a new version, which is checked again. Old
   versions keep their findings.
 
-### M8 hand-off
+### M8 hand-off (as built: see §14)
 
 `quotes.readiness(invitation, quote=None)`, also exposed as `GET /conversations/{id}/readiness/`, returns
 `{invitation_id, quote_id, version, expires_at, ready, blocking[], warnings[]}`.
@@ -708,3 +708,115 @@ API contracts: [api.md § Conversations, quotes and agreement gaps](api.md#conve
   - accept exactly the `quote_id`/`version` the customer saw.
 
   M8 owns acceptance, booking, time reservation and arrival codes.
+
+## 14. Module M8 — quote acceptance, booking and arrival
+
+API contracts: [api.md § Bookings, arrival codes and changes](api.md#bookings-arrival-codes-and-changes-m8).
+
+### Fixes to the M7 hand-off
+
+- **Two kinds of resolution.**
+  - `terms_confirmed`: the version as written is agreed.
+  - `terms_changed`: the agreed price, scope, materials or timing differ. That version stays blocked
+    (`revision_required`) until a revised version is submitted, and the new version is checked again.
+  - The finding, its sources and the resolution stay with the old version. A data migration maps M7's
+    `clarified` and `not_a_conflict` to `terms_confirmed`.
+- **A tracked agreement-check attempt** (`Quote.check_attempt`, `check_started_at`, status `running`).
+  1. `begin_check()` locks the quote and starts a new attempt. It refuses superseded or accepted versions.
+  2. The provider is called with no transaction open.
+  3. `store_check_result()` locks the quote again. It saves only if the same attempt is current, the version is
+     still `submitted` and it has not been accepted. Otherwise the late or stale result is discarded.
+  - `effective_check_status()` treats a `running` attempt older than `AGREEMENT_CHECK_STALE_SECONDS` as
+    `unavailable` ("stalled"), which opens re-run and the customer's manual review. Readiness blocks with
+    `automated_check_running` while a fresh attempt runs.
+- **A booked quote is frozen.** After acceptance, re-check, resolve, manual review, draft and submit are all
+  refused (`job_already_booked`), so the accepted version and its approval record never change. Messages
+  continue.
+
+### Model (`apps/bookings`)
+
+- **`Booking`:**
+  - Links: job, invitation, the accepted `quote` and `quote_version`, customer, worker profile.
+  - Timing: status, `start_at`/`end_at` (the reservation), `idempotency_key`, `arrived_at`/`started_at`, and
+    cancellation actor, role, reason and note.
+  - `accepted_terms` is an immutable snapshot: the terms, totals, `accepted_at`, the check result and every
+    resolution. `save()` refuses to overwrite it.
+  - `terms` are the terms in effect: the accepted terms, or the latest change approved by both.
+- **PostgreSQL constraints:**
+  - `booking_one_per_job`: one non-cancelled booking per job.
+  - `booking_idempotency_once (customer, key)`.
+  - `booking_no_worker_overlap`: an **exclusion constraint** using `btree_gist` on
+    `(worker_profile =, tstzrange(start, end, '[)') &&)`, active while confirmed, arrived or in progress.
+    Half-open intervals mean back-to-back slots do not conflict.
+  - `booking_one_started_per_worker`: a partial unique index on `status='in_progress'`.
+  - Status/time consistency checks.
+- **`ArrivalCode`:**
+  - Holds a digest only: `salted_hmac("kaam-madad.arrival-code", "booking:code", sha256)`.
+  - Also `issued_by`, `expires_at`, `failed_attempts`, `used_at` and `invalidated_at`.
+  - `arrival_code_one_live`: at most one live code per booking. Reissuing invalidates the old one inside the same
+    transaction.
+- **`BookingChange`:**
+  - Number, status (pending / approved / rejected / withdrawn / void), proposer and role, note.
+  - `old_terms`/`new_terms`, the approval time of each side, and who decided and when.
+  - `change_one_pending`, and `change_approved_by_both` (a database check that both approval times exist).
+- **`BookingEvent`:** the status history (kind, from/to status, actor role, note, data, time). It never contains
+  a code.
+
+### Service rules (`apps/bookings/services.py`)
+
+**One lock order** for M6, M7 and M8: `JobRequest → Invitation → Quote → WorkerProfile → User → Booking →
+ArrivalCode/BookingChange`. Each function locks only what it needs, in that order, and re-reads after locking.
+
+- **`accept_quote`** (BK-01, BK-03):
+  - The idempotency check happens under the job lock: the same key returns the same booking, and the same key
+    with another quote is a `409`.
+  - Then it re-checks: no booking for the job, an active invitation, exactly the submitted version, and M7
+    `readiness()` run under the locks (expiry, findings, check, `can_take_jobs`; the pause preference is
+    ignored).
+  - Then the overlap query, and the insert. An `IntegrityError` backstop maps each constraint to the right
+    `409`.
+- **Arrival and start:**
+  - `mark_arrived` is worker-only.
+  - `issue_code` is customer-only and only when arrived. The plaintext is returned once.
+  - `start_with_code` locks job → worker → booking → code, so starts are serialised per worker. A second job
+    in progress is refused even without an overlap.
+  - A wrong attempt increments `failed_attempts` inside the transaction, which commits; the error is raised
+    after the commit, so the count persists.
+  - Success marks the code used and moves the booking to `in_progress` in the same transaction.
+- **`cancel`** is allowed for either participant while confirmed or arrived. It sets the invitation to
+  `cancelled` (so the quote can never be accepted again), invalidates codes and voids pending changes. The time
+  is released because the exclusion constraint only covers open statuses.
+- **`propose_change` / `decide_change`** (QT-04):
+  - Proposed terms are validated with the M7 quote rules. A past start time is allowed when it is unchanged.
+  - The proposer's approval is recorded at once; only the other person can approve or reject.
+  - Time changes are allowed only while confirmed, and overlaps are re-checked at approval under the worker lock,
+    with the constraint as backstop.
+- **M6/M7 guards:**
+  - `send_invitation` refuses a booked job.
+  - Withdraw and decline answer `409 invitation_booked` with the booking ID.
+  - Invitation, conversation and job payloads carry `booking: {id, status}`.
+  - The exact address is in the booking payload only: always for the customer, and for the worker only while
+    the booking holds their time.
+
+### Frontend
+
+- **Accepting:** `AcceptQuote` shows the exact version, time, known charges and unknown parts.
+  - It keeps one acceptance key per quote in `sessionStorage`.
+  - On a `ConnectionError` it re-reads the conversation header and opens the booking if one exists; otherwise
+    it offers "try again" with the same key.
+- **`/bookings/:id`** (both roles):
+  - status steps, time, address (role-aware), terms with the original agreement, read-aloud of the terms (never
+    the code);
+  - the arrival panel: arrive, show the code, enter the code;
+  - changes with a before/after comparison, cancellation, and history.
+  - It polls every 10 s without touching typed input, and reloads after any uncertain action.
+- **Elsewhere:** "My bookings" lists on both dashboards; the request, invitation and conversation screens link
+  to the booking.
+
+### M9 hand-off
+
+An authorised booking in `in_progress`: `accepted_terms`, `terms` in effect, approved `changes`, and `events`
+(status history with actors). M9 adds completion requested, completed and disputed.
+- Add the disputed and completion-requested states to `Booking.RESERVING` and to the exclusion and
+  one-started conditions, so the reservation holds until the outcome.
+- Completion should use the same lock order.
