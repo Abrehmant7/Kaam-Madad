@@ -477,15 +477,17 @@ class ProviderCheckCommandTests(VoiceApiTestCase):
         self.assertIn("[OK] speech_to_text: fixture", output)
         self.assertIn("simulated=True", output)
         self.assertIn("motor rewinding", output)
+        self.assertIn("[OK] agreement_check: fixture/fixture-rules-v1 simulated=True findings=['materials_responsibility']", output)
 
     @override_settings(
         SPEECH_TO_TEXT_PROVIDER="gemini", INTERPRETATION_PROVIDER="gemini", TEXT_TO_SPEECH_PROVIDER="azure",
-        GEMINI_API_KEY="", AZURE_SPEECH_KEY="",
+        AGREEMENT_CHECK_PROVIDER="gemini", GEMINI_API_KEY="", AZURE_SPEECH_KEY="",
     )
     def test_real_providers_without_keys_report_not_configured(self):
         output = self.run_check()
         self.assertIn("[FAIL] interpretation: gemini: ai_provider_not_configured (missing_api_key)", output)
         self.assertIn("[FAIL] text_to_speech: azure: ai_provider_not_configured (missing_api_key)", output)
+        self.assertIn("[FAIL] agreement_check: gemini: ai_provider_not_configured (missing_api_key)", output)
         self.assertNotIn("[OK]", output)
 
 

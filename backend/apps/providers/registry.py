@@ -11,6 +11,7 @@ from django.conf import settings
 
 from config.env import DEPLOYMENT_MODE_DEMO
 
+from .agreement import AgreementChecker, FixtureAgreementChecker, GeminiAgreementChecker, UnconfiguredAgreementChecker
 from .errors import ProviderNotConfigured
 from .identity import CnicOcrProvider, TesseractCnicOcr, UnconfiguredCnicOcr
 from .interpretation import FixtureInterpretation, GeminiInterpretation, InterpretationProvider, UnconfiguredInterpretation
@@ -59,6 +60,15 @@ def text_to_speech() -> TextToSpeechProvider:
     return UnconfiguredTextToSpeech()
 
 
+def agreement_checker() -> AgreementChecker:
+    choice = settings.AGREEMENT_CHECK_PROVIDER
+    if choice == FIXTURE:
+        return FixtureAgreementChecker() if _fixture_allowed() else UnconfiguredAgreementChecker()
+    if choice == "gemini":
+        return GeminiAgreementChecker()
+    return UnconfiguredAgreementChecker()
+
+
 def cnic_ocr() -> CnicOcrProvider:
     # Real local OCR only: there is no simulated OCR option (M4).
     if settings.CNIC_OCR_PROVIDER == "tesseract":
@@ -82,4 +92,5 @@ def status() -> dict:
         "interpretation": _status(settings.INTERPRETATION_PROVIDER, interpretation),
         "text_to_speech": _status(settings.TEXT_TO_SPEECH_PROVIDER, text_to_speech),
         "cnic_ocr": _status(settings.CNIC_OCR_PROVIDER, cnic_ocr),
+        "agreement_check": _status(settings.AGREEMENT_CHECK_PROVIDER, agreement_checker),
     }

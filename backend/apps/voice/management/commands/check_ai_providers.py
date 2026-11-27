@@ -3,6 +3,7 @@
     python manage.py check_ai_providers --audio path/to/sample.wav [--language ur]
     python manage.py check_ai_providers --only text_to_speech --save-speech speech.mp3
     python manage.py check_ai_providers --only cnic_ocr --cnic-image ../docs/demo/cnic/demo-card-bilal-ahmed.png
+    python manage.py check_ai_providers --only agreement_check
 
 - Speech-to-text runs only with --audio (any supported format, ≤ 60 s, ≤ 10 MB).
 - Interpretation uses the transcript (or a built-in fictional Urdu sample).
@@ -10,6 +11,9 @@
   checks that real audio came back, and with --save-speech writes it to a file to listen to.
 - CNIC OCR runs the configured OCR provider (Tesseract on this host) on each --cnic-image and prints
   the extracted name and the MASKED number. Use the synthetic DEMO cards in docs/demo/cnic/.
+- Agreement check runs the configured checker on a built-in fictional request, two messages and a
+  quote that disagree about materials (labour-only quote, request says materials included), and prints
+  the findings with their verified source statements. A correct checker reports materials_responsibility.
 Each step reports OK, or the error code and reason (not configured / limit / unavailable / invalid output).
 Use fictional speech and text only — never real CNIC numbers or personal details.
 """
@@ -29,7 +33,21 @@ from apps.voice.audio import inspect_audio
 
 SAMPLE_TEXT = "میرا نام احمد ہے۔ میں الیکٹریشن ہوں۔ میں پنکھے لگاتا ہوں لیکن motor rewinding نہیں کرتا۔"
 SPEECH_SAMPLE = "احمد صاحب کل شام G-9 میں دو پنکھے لگائیں گے۔ AC کی service نہیں ہو گی۔"
-STEPS = ("speech_to_text", "interpretation", "text_to_speech", "cnic_ocr")
+STEPS = ("speech_to_text", "interpretation", "text_to_speech", "cnic_ocr", "agreement_check")
+# Fictional M7 sample: the request includes materials, the worker's message and quote say labour only.
+AGREEMENT_SAMPLE = {
+    "request": {"description": "دو چھت کے پنکھے لگانے ہیں۔ میرا بجٹ 3500 روپے ہے، سامان سمیت۔", "trade": "electrician",
+                "services": ["elec_fan_install"], "services_excluded": [], "area": "isb-g-9",
+                "window_start": "2030-01-10T17:00+05:00", "window_end": "2030-01-10T19:00+05:00", "budget_preference_pkr": "3500.00"},
+    "messages": [
+        {"id": "m1", "role": "customer", "text": "السلام علیکم، کیا آپ کل شام آ سکتے ہیں؟"},
+        {"id": "m2", "role": "worker", "text": "جی، کل پانچ بجے آ جاؤں گا۔ پنکھوں کا سامان آپ خود لے کر رکھیں، میں صرف لگاؤں گا۔"},
+    ],
+    "quote": {"version": 1, "inspection_only": False, "scope": "دو چھت کے پنکھے لگانا", "quantity": 2,
+              "labour_amount_pkr": "600.00", "labour_basis": "per_item", "materials": "customer", "materials_amount_pkr": None,
+              "visit_fee_pkr": None, "visit_fee_treatment": "none", "exclusions": "",
+              "start_at": "2030-01-10T17:00+05:00", "end_at": "2030-01-10T19:00+05:00"},
+}
 
 
 class Command(BaseCommand):
@@ -63,6 +81,27 @@ class Command(BaseCommand):
             self.check_text_to_speech(speak, speak_language, save_speech)
         if "cnic_ocr" in steps:
             self.check_cnic_ocr(cnic_image)
+        if "agreement_check" in steps:
+            self.check_agreement()
+
+    def check_agreement(self) -> None:
+        import time
+
+        started = time.monotonic()
+        try:
+            result = registry.agreement_checker().check(**AGREEMENT_SAMPLE)
+        except ProviderError as exc:
+            self.report("agreement_check", False, f"{settings.AGREEMENT_CHECK_PROVIDER}: {exc.code} ({exc.reason})")
+            return
+        codes = [finding["code"] for finding in result.findings]
+        self.report(
+            "agreement_check", "materials_responsibility" in codes,
+            f"{result.provider}/{result.model} simulated={result.simulated} findings={codes} {time.monotonic() - started:.1f}s",
+        )
+        for finding in result.findings:
+            self.stdout.write(f"    - {finding['code']} ask={finding['ask']} question={finding['question'][:160]!r}")
+            for source in finding["sources"]:
+                self.stdout.write(f"        source {source['kind']}/{source['ref']}: {source['text'][:120]!r}")
 
     def check_cnic_ocr(self, images) -> None:
         import time

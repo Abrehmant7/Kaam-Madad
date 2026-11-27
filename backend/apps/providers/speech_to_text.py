@@ -53,6 +53,8 @@ FIXTURE_TRANSCRIPTS = {
         "میرے گھر میں دو پنکھے لگوانے ہیں۔ میں G-9 میں رہتا ہوں۔ کل شام کو آ جائیں۔ "
         "AC کی service نہیں چاہیے، صرف پنکھے۔"
     ),
+    # A worker's voice note in a conversation (fictional): labour only, the customer buys the materials.
+    "message": "میں کل شام پانچ بجے آ سکتا ہوں۔ پنکھوں کا سامان آپ خود لے کر رکھیں، میں صرف لگاؤں گا۔",
 }
 FIXTURE_DEFAULT = FIXTURE_TRANSCRIPTS["worker_introduction"]
 

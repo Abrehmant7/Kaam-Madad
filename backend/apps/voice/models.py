@@ -38,6 +38,7 @@ def synthesis_upload_path(instance, filename: str) -> str:
 class Purpose(models.TextChoices):
     WORKER_INTRODUCTION = "worker_introduction", "Worker introduction"
     JOB_DESCRIPTION = "job_description", "Job description"
+    MESSAGE = "message", "Conversation voice note"
 
 
 class AudioClip(models.Model):

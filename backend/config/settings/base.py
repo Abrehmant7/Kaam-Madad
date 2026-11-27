@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "apps.workers",
     "apps.jobs",
     "apps.invitations",
+    "apps.conversations",
 ]
 
 # --------------------------------------------------------------------------
@@ -112,6 +113,14 @@ ELEVENLABS_API_BASE = env_str("ELEVENLABS_API_BASE", "https://api.elevenlabs.io"
 ELEVENLABS_OUTPUT_FORMAT = env_str("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128")
 # Zero-retention mode (enable_logging=false) is only available to ElevenLabs enterprise accounts.
 ELEVENLABS_ZERO_RETENTION = env_bool("ELEVENLABS_ZERO_RETENTION", False)
+
+# Agreement-gap check (M7, GAP-01): fixture (demo only) | gemini | unconfigured.
+AGREEMENT_CHECK_PROVIDER = env_choice("AGREEMENT_CHECK_PROVIDER", {"fixture", "gemini", "unconfigured"})
+GEMINI_AGREEMENT_MODEL = env_str("GEMINI_AGREEMENT_MODEL", GEMINI_INTERPRETATION_MODEL)
+# Output budget including the model's reasoning; 1500 was too small for gemini-3 models (truncated JSON).
+GEMINI_AGREEMENT_MAX_TOKENS = env_int("GEMINI_AGREEMENT_MAX_TOKENS", 6000, minimum=1000)
+# Quotations (M7, QT-03): a submitted version expires after this many hours or at its start time, whichever is first.
+QUOTE_VALIDITY_HOURS = env_int("QUOTE_VALIDITY_HOURS", 24, minimum=1)
 
 # CNIC OCR (M4, ID-01): tesseract (local executable on this host, no external service) | unconfigured.
 CNIC_OCR_PROVIDER = env_choice("CNIC_OCR_PROVIDER", {"tesseract", "unconfigured"}, default="tesseract")
@@ -309,6 +318,7 @@ API_THROTTLE_RATES = {
     "jobs_user": "300/hour",
     "job_photo_user": "60/hour",
     "invitation_user": "120/hour",
+    "conversation_user": "600/hour",
 }
 
 # --------------------------------------------------------------------------

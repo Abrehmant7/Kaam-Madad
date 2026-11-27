@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Django command-line utility for Kaam Madad.
 
-Defaults to development settings. Override with --settings=... or the
+Defaults to development settings ("test" defaults to config.settings.test). Override with --settings=... or the
 DJANGO_SETTINGS_MODULE environment variable.
 """
 
@@ -10,7 +10,9 @@ import sys
 
 
 def main() -> None:
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
+    # "manage.py test" must never pick up real provider keys from .env, so it defaults to test settings.
+    default = "config.settings.test" if sys.argv[1:2] == ["test"] else "config.settings.development"
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", default)
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
