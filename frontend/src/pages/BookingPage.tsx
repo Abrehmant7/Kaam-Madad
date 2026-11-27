@@ -23,6 +23,7 @@ import { SharedJob } from "../features/invitations/SharedJob";
 import { type JobCatalog, labeller, loadJobCatalog } from "../features/jobs/catalog";
 import { textDir } from "../features/jobs/text";
 import { formatDate, formatTime } from "../features/jobs/time";
+import { SafetyPanel } from "../features/reports/SafetyPanel";
 import { ReadAloud } from "../features/voice/ReadAloud";
 import { LoadError } from "../features/worker/shared";
 import { isTranslationKey, useI18n } from "../i18n/context";
@@ -205,6 +206,8 @@ export function BookingPage() {
           ))}
         </ol>
       </section>
+
+      <SafetyPanel target={{ booking_id: booking.id }} block={booking.contact_block} onChanged={reload} />
 
       <ButtonLink to={`/conversations/${booking.invitation_id}`} variant="secondary" fullWidth icon={<MessagesSquare className="size-5" aria-hidden />}>
         {t("booking.conversation")}

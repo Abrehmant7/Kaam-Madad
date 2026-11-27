@@ -1,7 +1,7 @@
 # Kaam Madad — API Contracts
 
 All endpoints are under `/api/v1/`, return JSON, and are served from the same origin as the web app.
-Implemented through **M9**. Planned endpoint families for later modules are listed in
+Implemented through **M10**. Planned endpoint families for later modules are listed in
 [requirements.md §10](requirements.md#10-api-contracts-and-screen-inventory) and are **not** implemented.
 
 ## Conventions
@@ -22,9 +22,9 @@ a field use `non_field_errors`). `details` holds optional non-sensitive context.
 |---|---|---|
 | 400 | Invalid input or rejected action | `validation_error`, `invalid_credentials`, `code_incorrect`, `code_expired`, `no_active_code`, `parse_error` |
 | 401 | No valid session (log in) — header `WWW-Authenticate: Session` | `not_authenticated` |
-| 403 | Signed in / identified but not allowed | `permission_denied`, `csrf_failed`, `account_inactive`, `worker_role_required`, `customer_role_required`, `marketplace_role_required`, `worker_only`, `customer_only`, `not_allowed_for_role` |
+| 403 | Signed in / identified but not allowed | `permission_denied`, `csrf_failed`, `account_inactive`, `worker_role_required`, `customer_role_required`, `marketplace_role_required`, `worker_only`, `customer_only`, `not_allowed_for_role`, `account_restricted` |
 | 404 | Unknown resource or `/api/` path | `not_found` |
-| 409 | Conflicts with current state | `already_authenticated`, `phone_already_confirmed`, `invitation_already_active`, `invitation_closed`, `conversation_closed`, `no_quote_draft`, `quote_not_current`, `check_not_needed`, `job_already_booked`, `invitation_booked`, `quote_expired`, `quote_not_ready`, `invitation_not_active`, `schedule_conflict`, `worker_not_eligible`, `idempotency_key_reused`, `booking_state_conflict`, `cancel_not_allowed`, `worker_has_job_in_progress`, `change_pending`, `change_not_pending`, `time_change_not_allowed` |
+| 409 | Conflicts with current state | `already_authenticated`, `phone_already_confirmed`, `invitation_already_active`, `invitation_closed`, `conversation_closed`, `no_quote_draft`, `quote_not_current`, `check_not_needed`, `job_already_booked`, `invitation_booked`, `quote_expired`, `quote_not_ready`, `invitation_not_active`, `schedule_conflict`, `worker_not_eligible`, `idempotency_key_reused`, `booking_state_conflict`, `cancel_not_allowed`, `worker_has_job_in_progress`, `change_pending`, `change_not_pending`, `time_change_not_allowed`, `contact_blocked`, `report_closed`, `too_much_evidence`, `review_not_allowed`, `change_open` |
 | 429 | Rate limited (`Retry-After` header; `details.retry_after_seconds`) | `throttled`, `resend_too_soon`, `send_limit_reached`, `too_many_attempts` |
 | 500 / 503 | Server error / not ready or provider unavailable | `server_error`, `service_not_ready`, `phone_verification_unavailable` |
 
@@ -975,3 +975,114 @@ reason.
 - `average_rating` has one decimal, or is `null` when there are no visible reviews (**never zero**).
 - Only customer-confirmed completed bookings count. Jobs show the area only: no address, access notes or
   identities.
+
+## Reports, moderation, restrictions and blocks (M10)
+
+### Reports (reporter's API)
+
+Either participant of an invitation or booking can report the **other** participant, including after the
+invitation or booking closed. Restricted accounts can report too.
+
+- **`POST /reports/`** with `{"client_id": "<uuid>", "category", "description"?: ≤2000, "audio_clip_id"?}` and
+  exactly one of `invitation_id` or `booking_id`.
+  - **The reported person is derived on the server from that interaction.** There is no field to choose an
+    account; unknown fields are `400 unexpected_field`.
+  - Non-participants get `404`.
+  - A description or a voice note is required (`description: required`).
+  - `category` is one of `harassment`, `threats`, `impersonation`, `no_show`, `property_work`, `other`.
+  - `201` with the Report. The same `client_id` again returns `200` with the same report.
+  - Filing **does not change any booking**: no state, reservation or event, and no automatic sanction.
+- **Voice note:** upload with `POST /audio/clips/`, `purpose: "report"`.
+  - Report audio is **never transcribed**: `POST /audio/transcribe/` on it returns
+    `400 clip_id: not_transcribable`.
+  - Report audio is never sent to any provider.
+- **`POST /reports/{id}/evidence/`:** multipart `file` (a JPEG, PNG or WebP image, at most 5 MB) or JSON
+  `{"audio_clip_id"}` (a `report` clip).
+  - Images go through the M5 photo pipeline: content checks, then re-encoding **without metadata** (EXIF/GPS
+    removed).
+  - At most 5 items (`409 too_much_evidence`).
+  - Not after the report is closed (`409 report_closed`).
+- **`GET /reports/`:** my reports (summaries).
+- **`GET /reports/{id}/`:** the full report. It includes only the reporter's replies and staff messages
+  **intended for the reporter**. Internal notes never leave Admin.
+- **`GET /reports/{id}/evidence/{eid}/content/`** is reporter-only, with `Cache-Control: private, no-store`.
+- **`POST /reports/{id}/replies/`** `{"text"}`: the reporter adds information, for example after staff asked.
+  It clears `awaiting_reply`.
+
+The reported person and any third account get `404` on every report URL and see `0` in their own list. Nothing
+about a report appears in conversation, booking or invitation payloads.
+
+```json
+{"id": "…", "status": "reviewing", "category": "threats", "reporter_role": "customer",
+ "interaction": {"invitation_id": "…", "booking_id": null}, "awaiting_reply": true,
+ "description": "…", "evidence": [{"id": "…", "kind": "image", "role": "evidence", "removed": false,
+                                   "content_url": "/api/v1/reports/…/evidence/…/content/"}],
+ "messages": [{"from": "staff", "text": "…", "at": "…Z"}], "can_reply": true, "can_add_evidence": true}
+```
+
+Statuses are `open` → `reviewing` → `resolved` or `dismissed`. Staff identities are never shown to users.
+
+### Staff (Django Admin)
+
+Reports → **Report** has a queue with filters by status, category, awaiting reply and date (with a date
+hierarchy). Each report links to its invitation and booking in Admin.
+
+| Permission | Allows |
+|---|---|
+| `reports.review_report` | Seeing the queue and report text; **Record a decision…**: mark reviewing, ask for information, resolve, dismiss, or add an internal note |
+| `reports.view_evidence` | Opening evidence. Each opening is recorded in `EvidenceAccess` (staff, item, time) **before** the content is returned |
+| `reports.take_account_action` | Restricting, lifting a restriction, suspending or reactivating the **reported** account |
+
+**Every decision** is a `ReportDecision` with actor, time, a required reason, and old/new state:
+- status and `awaiting_reply` for report decisions;
+- `is_active` and `restricted` for account actions.
+
+**Messages:**
+- "Message to the reporter" is visible to the reporter. It is required to ask for information, resolve or dismiss.
+- "Internal note" is never visible to the reporter or the reported person.
+
+The original report and evidence are never edited. M4's verification tools and M9's dispute and review tools
+are unchanged.
+
+### Restrictions and suspension
+
+**Restricted** (`User.restricted_at`, separate from `is_active`; `auth/me` returns `restricted: true`):
+- The account can still sign in, view its records, finish existing bookings (M8/M9 actions unchanged), file
+  reports and reply to staff.
+- The server refuses new activity with `403 account_restricted`: new or confirmed requests, invitations,
+  messages, quote drafts and submissions, and accepting a quote.
+- Restricted workers fail `worker_eligibility` (reason `account_restricted`). They are not recommended, cannot
+  receive new invitations, and cannot be booked from an existing quote (`409 worker_not_eligible`).
+
+**Suspended** (`is_active=False`): the existing behaviour. Login is refused, and existing sessions stop
+authenticating.
+
+### Blocks
+
+- `POST /blocks/` `{"invitation_id" | "booking_id"}` blocks further contact with the other participant. Any
+  participant can do this, including restricted accounts; repeating it is idempotent.
+- `DELETE /blocks/{id}/` lifts it; only the person who blocked can do this.
+- A block works in both directions:
+  - new messages, quote drafts and submissions, and invitations between the pair return `409 contact_blocked`;
+  - booking acceptance between the pair is refused too;
+  - the worker is not recommended to that customer.
+- History, reports, evidence and existing bookings are kept, and M8/M9 booking actions stay available. Nothing
+  is cancelled or released.
+- `contact_block: {blocked, by_me, block_id}` appears in conversation and booking payloads. The other person
+  only learns that contact is blocked, not who blocked.
+- The conversation header gains `write_blocked_reason`: `closed`, `contact_blocked`, `account_restricted` or
+  `null`.
+
+### Evidence retention (prototype)
+
+`python manage.py purge_report_evidence [--days N] [--dry-run]` removes evidence **content**: the image file, or
+the audio recording and its clip.
+- It applies only to reports that were resolved or dismissed more than `REPORT_EVIDENCE_RETENTION_DAYS` (180)
+  days ago.
+- It never touches open or reviewing reports, or reports whose booking is awaiting completion or disputed.
+- The report, its text, messages, decisions and access log stay. The evidence row is marked `removed`.
+- It prints counts only.
+
+Run it on a schedule in a real deployment (M11). Staff without `view_evidence` cannot open recordings or
+images. There is no blanket staff access: Django Admin has no general audio-clip view, and M4 never stores CNIC
+images.

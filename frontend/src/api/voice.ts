@@ -2,7 +2,7 @@ import { apiRequest } from "./client";
 
 export type VoiceKind = "worker_introduction" | "job_description";
 /** Upload purposes: the two interpretation kinds, plus conversation voice notes (never interpreted as drafts). */
-export type ClipPurpose = VoiceKind | "message" | "review";
+export type ClipPurpose = VoiceKind | "message" | "review" | "report";
 export type LanguageHint = "ur" | "en";
 
 /** AI calls can take longer than ordinary requests (server retries are bounded). */

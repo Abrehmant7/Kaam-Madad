@@ -1,5 +1,6 @@
 import { apiRequest } from "./client";
 import type { BookingLink, SharedSummary } from "./invitations";
+import type { ContactBlockState } from "./reports";
 
 const base = (id: string) => `/conversations/${id}`;
 
@@ -7,6 +8,8 @@ export interface ConversationHeader {
   invitation: { id: string; status: "active" | "declined" | "withdrawn" | "cancelled"; created_at: string; closed_at: string | null };
   role: "customer" | "worker";
   can_write: boolean;
+  write_blocked_reason: "closed" | "contact_blocked" | "account_restricted" | null;
+  contact_block: ContactBlockState;
   job: SharedSummary;
   job_id: string | null;
   booking: BookingLink | null;

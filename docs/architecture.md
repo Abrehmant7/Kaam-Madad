@@ -893,3 +893,70 @@ Without the permission these return `403`. Arrival-code digests and idempotency 
 Reports (REP-01..03) should attach to an invitation or booking and use the same participant checks (`role_in`).
 Account restrictions should reuse `worker_eligibility`. Dispute outcomes are already audited on the booking and
 can be referenced from a report case.
+
+## 16. Module M10 — misconduct reports and moderation
+
+API contracts: [api.md § Reports, moderation, restrictions and blocks](api.md#reports-moderation-restrictions-and-blocks-m10).
+
+### Data (`apps/reports`)
+
+- **`Report`:**
+  - Fields: reporter, reporter role, **reported** (server-derived), invitation (always), booking (optional),
+    `client_id`, category, description, status, `awaiting_reply`, `closed_at`.
+  - Constraints: `report_client_id_once`, `report_not_about_self` (a database check), `report_closed_has_time`.
+- **`ReportEvidence`:**
+  - kind image/audio and role statement/evidence;
+  - an image `file` in private media (`report-evidence/…`, random names, never served by URL), or an
+    `audio_clip` with voice purpose `report`;
+  - `deleted_at` for retention.
+- **`ReportMessage`:** `reporter_reply`, `to_reporter` and `internal`. The API filters out `internal`, and Admin
+  labels it.
+- **`ReportDecision`:** the audit log (action, actor, required reason, old/new state, time), covering report
+  decisions and account actions.
+- **`EvidenceAccess`:** one row per staff opening of evidence.
+- **`ContactBlock`:** blocker, blocked and invitation. Constraints: `block_pair_once`, `block_not_self`.
+- **`User.restricted_at`** (accounts migration 0003): the marketplace restriction, separate from `is_active`.
+
+### Rules (`apps/reports/services.py`)
+
+- **`interaction_for(user, invitation|booking)`** returns `(invitation, booking, role, other participant)`, and
+  `404` for non-participants. It is the only source of the reported person.
+- **`file_report`:**
+  - retry-safe through `client_id`;
+  - accepts a description or a `report` voice clip owned by the reporter and not used before;
+  - makes no booking or account change;
+  - logs only the category.
+- **`add_evidence`** reuses `apps.jobs.photos.clean_photo` (content checks and a metadata-free re-encode) for
+  images and the M3 audio validation for clips. At most 5 items, open reports only.
+- **`decide`:**
+  - checks the permission itself, not only the Admin view;
+  - locks the report;
+  - validates the transition;
+  - writes the decision, the reporter message and the internal note;
+  - with `take_account_action` it can also run `apply_account_action` on the reported user (locked, with
+    old/new state).
+- **`open_evidence_for_staff`** records the access before returning the file.
+- **Guards used by M5–M8:**
+  - `require_unrestricted`: job create and confirm, `send_invitation`, message send, quote draft and submit,
+    `accept_quote`;
+  - `require_not_blocked` / `is_blocked`: the same write paths plus invitations;
+  - `blocked_user_ids`: filters recommendations.
+  - `worker_eligibility` now adds `account_restricted`, which covers recommendation, invitation and M8
+    readiness for workers.
+- **Untouched on purpose:** M8/M9 booking actions (arrive, code, start, changes, cancel, completion, dispute),
+  so a report, block or restriction never interferes with an existing booking.
+
+### Privacy
+
+- Reports are reachable only through `own_report` (the reporter) or Admin (with permissions); every other path
+  is `404`.
+- Report audio refuses transcription (`not_transcribable`), so it never reaches a speech provider. Report text is
+  never sent to any AI provider and never logged.
+- Evidence downloads go through authenticated views with `private, no-store`.
+
+### M11 hand-off
+
+- Schedule `purge_report_evidence`.
+- Create staff groups for the three permissions.
+- Configure production retention and a real review team (SAFE-02).
+- Optionally add notifications to reporters.

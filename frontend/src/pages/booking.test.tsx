@@ -30,7 +30,7 @@ const quote = {
 const readiness = { invitation_id: "inv-1", quote_id: "q-1", version: 2, expires_at: "2030-01-02T11:00:00Z", ready: true, blocking: [], warnings: ["unknown_amounts"], booking_id: null };
 const header = (booking: unknown = null) => ({
   invitation: { id: "inv-1", status: "active", created_at: "x", closed_at: null }, role: "customer", can_write: true, job: SHARED,
-  job_id: "job-1", booking, counterpart: { role: "worker", worker_id: "00000000-0000-4000-8000-00000000a7f3", trade: "electrician" },
+  job_id: "job-1", booking, write_blocked_reason: null, contact_block: { blocked: false, by_me: false, block_id: null }, counterpart: { role: "worker", worker_id: "00000000-0000-4000-8000-00000000a7f3", trade: "electrician" },
 });
 
 /** A loose fixture: tests replace any field while a mocked flow moves the booking through its states. */
@@ -45,7 +45,7 @@ function booking(overrides: Record<string, unknown> = {}): Fixture {
     terms_changed: false, job: SHARED, address: { address: "House 5, Street 9", access_notes: "Ring twice" },
     counterpart: { role: "worker", worker_id: "00000000-0000-4000-8000-00000000a7f3", trade: "electrician", verification: { status: "demo_approved", simulated: true } },
     created_at: "2030-01-01T10:00:00Z", arrived_at: null, started_at: null, cancelled_at: null, cancelled_role: null, cancel_reason: null, cancel_note: null,
-    arrival_code: null, changes: [], history: [{ kind: "confirmed", from_status: null, to_status: "confirmed", actor_role: "customer", note: null, data: {}, at: "2030-01-01T10:00:00Z" }],
+    contact_block: { blocked: false, by_me: false, block_id: null }, arrival_code: null, changes: [], history: [{ kind: "confirmed", from_status: null, to_status: "confirmed", actor_role: "customer", note: null, data: {}, at: "2030-01-01T10:00:00Z" }],
     actions: { arrive: false, issue_code: false, start: false, cancel: true, propose_change: true, change_time: true },
     ...overrides,
   };

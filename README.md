@@ -10,16 +10,18 @@ using Urdu text, spoken instructions, recognisable icons and guided choices.
 
 Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 
-> **Status: Modules M1–M9 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
+> **Status: Modules M1–M10 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
 > onboarding and identity check; customer job requests; recommendations and invitations; private conversations
-> and quotations; acceptance, booking and arrival; completion, disputes and reviews).
+> and quotations; acceptance, booking and arrival; completion, disputes and reviews; reports and moderation).
 > - A customer describes a job, invites a matching worker, agrees a structured quote and books the worker.
 > - On the day the worker enters the customer's one-time arrival code. When the work is done, the worker asks
 >   the customer to confirm.
 > - The customer confirms and leaves one review, or raises an issue for staff.
 > - Confirmed work and visible ratings then shape future recommendations.
+> - Either person can privately report the other, or block further contact. Staff review reports in Django
+>   Admin and can restrict or suspend accounts.
 >
-> Misconduct reports (M10) are **not** implemented yet.
+> Deployment and submission preparation are M11.
 > See [docs/progress.md](docs/progress.md).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
@@ -197,7 +199,7 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 | Conversations, quotations, agreement check | **Implemented** (M7): private text and voice-note messages, structured versioned quotes, agreement check (Gemini or a labelled demo fixture) |
 | Acceptance, bookings, arrival codes | **Implemented** (M8): booking from an accepted quote, no double-booking, one-time arrival code, cancellation and changes |
 | Completion, disputes, reviews | **Implemented** (M9): customer-confirmed completion, staff dispute outcome in Django Admin, one review per completed job (typed or voice draft), work history in recommendations |
-| Misconduct reports | Not implemented (M10) |
+| Misconduct reports and moderation | **Implemented** (M10): private reports with evidence, staff queue with audited decisions in Django Admin, restrictions, contact blocking, evidence retention command |
 
 ## 6. Voice and AI (M3)
 
@@ -588,7 +590,51 @@ After pulling, from `backend/`: `python manage.py migrate` (adds the `reviews` a
 3. **Hiding a review:** `/admin/` → Reviews → a review → **Hide review…** with a reason. This needs the
    "Can hide an abusive review" permission. The text is kept; the worker's rating and count update.
 
-## 13. Checks and tests
+## 13. Reports, moderation and blocking (M10)
+
+After pulling, from `backend/`: `python manage.py migrate` (adds `reports`, the account restriction field and the
+`report` audio purpose).
+
+### Demo: report → staff → resolution
+
+1. **Report (customer or worker):** in a conversation or on a booking, open **Safety → Report a concern /
+   شکایت درج کریں**.
+   - Choose what happened, then describe it or record a voice note (one of the two is required). Optionally add
+     up to 5 photos; location and camera details are removed.
+   - Send. The report opens with status **Open**. It is also under **My reports** on both dashboards.
+   - The other person is not told and cannot open it. A report does not cancel or change a booking.
+2. **Staff:**
+   - Create fictional staff with `python manage.py createsuperuser` (all permissions), or give a staff user only
+     the permissions they need:
+
+     | Permission | Allows |
+     |---|---|
+     | "Can review reports and record decisions" | The queue and **Record a decision…** |
+     | "Can open report evidence" | Opening evidence; every opening is recorded |
+     | "Can restrict, suspend or lift restrictions" | Account actions on the reported account |
+
+   - Open `/admin/` → **Reports**. Filter by status, category or date. Open a report: it shows the text, links to
+     the invitation and booking, the evidence ("Open (recorded)"), the messages and the decision log.
+   - **Record a decision…**: choose **Ask the reporter for more information**, write the reason (staff only) and
+     the message the reporter should see. An internal note is optional and never shown to users.
+3. **Reporter:** the report shows **Staff asked for more information** with the staff message. Reply in the box.
+4. **Staff:** **Record a decision…** → **Resolve** (or **Dismiss**), with a message to the reporter.
+   - Optionally add an account action: **Restrict** (sign-in still works, but no new requests, invitations,
+     messages, quotes or bookings), **Suspend** (no login), or lift either. A reason is required, and everything
+     is audited.
+5. **Block:** under Safety, **Block further contact** stops new messages, quotes, invitations and bookings
+   between the two, in both directions. History and any existing booking stay. Only the person who blocked can
+   allow contact again.
+
+### Evidence retention (prototype)
+
+`python manage.py purge_report_evidence --dry-run`, then run it without `--dry-run`.
+- It removes the photos and recordings of reports resolved or dismissed more than
+  `REPORT_EVIDENCE_RETENTION_DAYS` days ago (default 180).
+- It never touches open cases or bookings still awaiting completion or disputed.
+- Reports, decisions and the evidence-access log are kept.
+
+## 14. Checks and tests
 
 ```bash
 # Backend (from backend/, venv active) — runs against a real PostgreSQL test database
@@ -609,7 +655,7 @@ curl http://localhost:5173/api/v1/health/live/    # {"status":"ok"}
 curl http://localhost:5173/api/v1/health/ready/   # {"status":"ok","checks":{"database":"ok"}} or 503
 ```
 
-## 14. Production-like local run (same origin)
+## 15. Production-like local run (same origin)
 
 Builds the frontend and lets Django serve everything on one port, with production settings
 (HTTPS redirect disabled only because this local test uses plain HTTP):

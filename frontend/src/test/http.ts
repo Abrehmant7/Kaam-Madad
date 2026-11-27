@@ -69,6 +69,7 @@ export function makeUser(overrides: Record<string, unknown> = {}) {
     preferred_language: "ur",
     is_demo: true,
     is_staff: false,
+    restricted: false,
     phone_confirmation: { status: "unconfirmed", method: null, confirmed_at: null },
     date_joined: "2026-11-25T10:00:00+00:00",
     ...overrides,

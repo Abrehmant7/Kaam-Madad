@@ -5,6 +5,8 @@ import { AppShell } from "./components/layout/AppShell";
 import { CatalogPreviewPage } from "./pages/CatalogPreviewPage";
 import { BookingPage } from "./pages/BookingPage";
 import { ConversationPage } from "./pages/ConversationPage";
+import { ReportNewPage } from "./pages/ReportNewPage";
+import { ReportDetailPage, ReportsPage } from "./pages/ReportsPages";
 import { CustomerDashboardPage } from "./pages/customer/CustomerDashboardPage";
 import { DescribeJobPage } from "./pages/customer/DescribeJobPage";
 import { FindWorkersPage } from "./pages/customer/FindWorkersPage";
@@ -51,6 +53,9 @@ export const routes: RouteObject[] = [
           { path: "voice-test", element: <VoiceTestPage /> },
           { path: "conversations/:id", element: <ConversationPage /> },
           { path: "bookings/:id", element: <BookingPage /> },
+          { path: "reports", element: <ReportsPage /> },
+          { path: "reports/new", element: <ReportNewPage /> },
+          { path: "reports/:id", element: <ReportDetailPage /> },
         ],
       },
       {

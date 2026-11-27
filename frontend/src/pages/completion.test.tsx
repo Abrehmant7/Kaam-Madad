@@ -33,7 +33,7 @@ function booking(overrides: Record<string, unknown> = {}): Fixture {
     terms_changed: false, job: SHARED, address: null, counterpart: { role: "customer" },
     created_at: "2030-01-01T10:00:00Z", arrived_at: "x", started_at: "x", cancelled_at: null, cancelled_role: null, cancel_reason: null, cancel_note: null,
     completion_requested_at: null, completed_at: null, completed_services: [], disputed_at: null, dispute_reason: null, dispute_note: null,
-    closed_at: null, staff_outcome: null, staff_reason: null, review: null, arrival_code: null, changes: [], history: [],
+    closed_at: null, staff_outcome: null, staff_reason: null, review: null, contact_block: { blocked: false, by_me: false, block_id: null }, arrival_code: null, changes: [], history: [],
     actions: NO_ACTIONS, ...overrides,
   };
 }

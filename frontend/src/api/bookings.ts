@@ -2,6 +2,7 @@ import type { Page } from "./catalog";
 import { apiRequest } from "./client";
 import type { Materials, Quote, QuoteTerms, VisitFeeTreatment } from "./conversations";
 import type { SharedSummary } from "./invitations";
+import type { ContactBlockState } from "./reports";
 
 export type BookingStatus = "confirmed" | "arrived" | "in_progress" | "completion_requested" | "completed" | "disputed" | "closed" | "cancelled";
 export type DisputeReason = "not_finished" | "not_as_agreed" | "damage" | "price" | "other";
@@ -121,6 +122,7 @@ export interface Booking {
   staff_outcome: "return_to_work" | "close" | null;
   staff_reason: string | null;
   review: Review | null;
+  contact_block: ContactBlockState;
   arrival_code: ArrivalCodeState | null;
   changes: BookingChange[];
   history: BookingEvent[];

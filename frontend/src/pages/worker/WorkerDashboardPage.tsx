@@ -12,6 +12,7 @@ import { Button, ButtonLink } from "../../components/ui/Button";
 import { PageLoader } from "../../components/ui/PageLoader";
 import { StatusBadge, type BadgeTone } from "../../components/ui/StatusBadge";
 import { BookingList } from "../../features/bookings/BookingList";
+import { AccountNotices } from "../../features/reports/AccountNotices";
 import { WorkerFeedback } from "../../features/bookings/WorkerFeedback";
 import { InvitationInbox } from "../../features/invitations/InvitationInbox";
 import { PhoneConfirmationBadge } from "../../features/phone/PhoneConfirmationStatus";
@@ -126,6 +127,7 @@ export function WorkerDashboardPage() {
         )}
       </Card>
 
+      <AccountNotices />
       <BookingList />
       <InvitationInbox />
       <WorkerFeedback />

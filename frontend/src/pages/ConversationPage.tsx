@@ -11,6 +11,7 @@ import { StatusBadge } from "../components/ui/StatusBadge";
 import { MessageThread } from "../features/conversations/MessageThread";
 import { QuotePanel } from "../features/conversations/QuotePanel";
 import { SharedJob } from "../features/invitations/SharedJob";
+import { SafetyPanel } from "../features/reports/SafetyPanel";
 import { labeller, loadJobCatalog } from "../features/jobs/catalog";
 import { LoadError, useLoad } from "../features/worker/shared";
 import { useI18n } from "../i18n/context";
@@ -44,14 +45,19 @@ export function ConversationPage() {
           {t("conv.title")}
         </h1>
         <p className="font-bold">{t("conv.with", { name: counterpart })}</p>
-        {canWrite ? (
+        {header.invitation.status === "active" && !closedNow ? (
           <StatusBadge tone="info">{t("inv.status.active")}</StatusBadge>
         ) : (
           <StatusBadge tone="neutral">{header.invitation.status === "active" ? t("conv.closedBadge") : t(`inv.status.${header.invitation.status}`)}</StatusBadge>
         )}
         <p className="text-sm text-muted">{t("conv.privacy")}</p>
       </div>
-      {!canWrite && <Alert tone="info">{t("conv.closedBody")}</Alert>}
+      {!canWrite && (
+        <Alert tone="info">
+          {header.write_blocked_reason === "contact_blocked" ? t("conv.blockedBody")
+            : header.write_blocked_reason === "account_restricted" ? t("conv.restrictedBody") : t("conv.closedBody")}
+        </Alert>
+      )}
       {header.booking && header.booking.status !== "cancelled" && (
         <Alert tone="success" title={t("conv.bookedTitle")}>
           <p>{t("conv.bookedBody")}</p>
@@ -70,6 +76,8 @@ export function ConversationPage() {
       <QuotePanel invitationId={header.invitation.id} role={header.role} canWrite={canWrite} refreshKey={refreshKey}
         booked={Boolean(header.booking && header.booking.status !== "cancelled")} />
       <MessageThread invitationId={header.invitation.id} canWrite={canWrite} onActivity={bump} onClosed={closed} />
+
+      <SafetyPanel target={{ invitation_id: header.invitation.id }} block={header.contact_block} onChanged={data.retry} />
 
       <ButtonLink to={back} variant="secondary" fullWidth icon={<ArrowLeft className="size-5 rtl:-scale-x-100" aria-hidden />}>
         {t("conv.back")}

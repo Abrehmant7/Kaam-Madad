@@ -9,6 +9,7 @@ import { ButtonLink } from "../../components/ui/Button";
 import { PageLoader } from "../../components/ui/PageLoader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { BookingList } from "../../features/bookings/BookingList";
+import { AccountNotices } from "../../features/reports/AccountNotices";
 import { type JobCatalog, labeller, loadJobCatalog } from "../../features/jobs/catalog";
 import { textDir } from "../../features/jobs/text";
 import { formatDate, formatTime } from "../../features/jobs/time";
@@ -73,6 +74,7 @@ export function CustomerDashboardPage() {
         {t("jobs.describe.cta")}
       </ButtonLink>
 
+      <AccountNotices />
       <BookingList />
 
       <section aria-labelledby="requests-heading" className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">

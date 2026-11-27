@@ -17,6 +17,8 @@ export interface AccountUser {
   preferred_language: Language;
   is_demo: boolean;
   is_staff: boolean;
+  /** M10: staff restriction — the account can view records, report and reply, but not start new activity. */
+  restricted: boolean;
   phone_confirmation: PhoneConfirmation;
   date_joined: string;
 }

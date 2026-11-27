@@ -20,7 +20,7 @@ const SHARED = {
 };
 const header = (role: "customer" | "worker", status = "active") => ({
   invitation: { id: "inv-1", status, created_at: "2030-01-01T10:00:00Z", closed_at: status === "active" ? null : "2030-01-02T10:00:00Z" },
-  role, can_write: status === "active", job: SHARED, job_id: role === "customer" ? "job-1" : null, booking: null,
+  role, can_write: status === "active", job: SHARED, job_id: role === "customer" ? "job-1" : null, booking: null, write_blocked_reason: status === "active" ? null : "closed", contact_block: { blocked: false, by_me: false, block_id: null },
   counterpart: role === "customer" ? { role: "worker", worker_id: "00000000-0000-4000-8000-00000000a7f3", trade: "electrician" } : { role: "customer" },
 });
 const message = (id: string, overrides: Record<string, unknown> = {}) => ({

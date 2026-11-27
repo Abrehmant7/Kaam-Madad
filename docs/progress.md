@@ -19,8 +19,142 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M7 Communication and agreements | ✅ Complete (27 Nov 2026) — fixture walk-through; live Gemini agreement check verified with `gemini-3-flash-preview` |
 | M8 Booking and arrival | ✅ Complete (27 Nov 2026) — two-session walk-through with fixture AI; PostgreSQL concurrency tests |
 | M9 Completion and feedback | ✅ Complete (27 Nov 2026) — Urdu two-session walk-through with fixture AI; PostgreSQL race tests |
-| M10 Reporting and moderation | ⬜ Next |
-| M11 Integration and delivery | ⬜ Not started |
+| M10 Reporting and moderation | ✅ Complete (27 Nov 2026) — Urdu report through staff resolution; separate customer, worker and staff sessions |
+| M11 Integration and delivery | ⬜ Next |
+
+---
+
+## M10 Misconduct reporting and moderation — complete (27 Nov 2026)
+
+### Delivered
+
+- [x] **Private reports:**
+  - "Report a concern" on the conversation and booking screens, for customers and workers, including after
+    the interaction closes. Restricted accounts can report too.
+  - The reported person is derived on the server, so a client can neither pick an unrelated account nor report
+    itself; a database check also forbids self-reports.
+  - Six categories. A typed description or a voice note is required. Up to 5 evidence images are re-encoded
+    without metadata; audio evidence works with no transcription.
+  - Report audio is refused by the transcription endpoint, and report text and files are never logged or sent
+    to providers.
+  - Filing is retry-safe (`client_id`) and changes no booking or account.
+- [x] **"My reports":**
+  - statuses open, reviewing, resolved and dismissed;
+  - staff messages meant for the reporter, with a reply box when staff ask for information;
+  - the reporter's own evidence, downloadable only by them;
+  - the reported person and third accounts get 404 everywhere.
+- [x] **Django Admin queue:**
+  - filters by status, category, awaiting reply and date; links to the invitation and booking;
+  - **Record a decision…** (mark reviewing, ask for information, resolve, dismiss, internal note), with a
+    required reason and a reporter-visible message kept separate from internal notes;
+  - three explicit permissions (`review_report`, `view_evidence`, `take_account_action`);
+  - every decision is audited with actor, time and old/new state, and every evidence opening is recorded.
+- [x] **Restriction (separate from suspension):**
+  - `User.restricted_at` blocks new requests, invitations, messages, quotes and bookings on the server.
+  - Restricted workers drop out of recommendations, invitations and booking readiness.
+  - Restricted users keep sign-in, their records, existing bookings (M8/M9), reports and replies.
+  - Suspension stays `is_active=False`. Lifting and reactivation are audited actions too.
+- [x] **Blocking:**
+  - "Block further contact" stops new messages, quotes, invitations and bookings between the pair in both
+    directions, and hides the worker from that customer's recommendations.
+  - History, reports, evidence and existing bookings are kept, and M8/M9 booking actions stay available.
+  - Only the blocker can lift it, and the other side is not told who blocked.
+- [x] **Retention:** `purge_report_evidence` removes evidence content of reports closed more than 180 days
+  (configurable). It never touches open cases or active disputes, keeps the audit trail, and prints counts only.
+- [x] **Dashboards:** a restriction notice and a "My reports" link for both roles.
+
+### Checks (27 Nov 2026)
+
+| Check | Result |
+|---|---|
+| Backend tests (real PostgreSQL) | ✅ **353 passed** (16 new for M10) |
+| `check`, `makemigrations --check`, `migrate` | ✅ No issues; migrations `accounts.0003`, `voice.0005`, `reports.0001` applied |
+| Frontend typecheck / tests / build | ✅ No errors / **99 passed** (5 new) / built |
+
+Backend tests cover:
+- **Filing:**
+  - both roles can report, the reported person is derived, and retries are safe;
+  - a voice note alone is enough, and `reported_id` is rejected as an unexpected field;
+  - strangers get 404;
+  - reporting works after withdrawal, a report on an in-progress booking leaves its status and events untouched,
+    and M9 completion still works;
+  - report audio is not transcribable.
+- **Privacy:**
+  - the reported person and a third account get 404 on the report, evidence, replies and list;
+  - the conversation header never mentions reports;
+  - report text is not logged;
+  - evidence limits (bad image → 415, a 6th item → 409, another user's clip refused).
+- **Staff:**
+  - without the review permission, decisions are refused;
+  - ask for information → the reporter sees only the staff message (not the internal note) → reply → resolve →
+    no replies after closing;
+  - the audit has old/new state and the actor.
+- **Admin permissions:** the queue and decide views give 403 without `review_report`. Evidence gives 403 without
+  `view_evidence` and leaves no access record; with it, one access is recorded.
+- **Account actions:** they need `take_account_action`; the audit has old/new state; the report text is
+  unchanged; lifting works; suspension logs the session out.
+- **A restricted worker:**
+  - cannot message (403);
+  - can read, report and reply;
+  - is not recommended, and booking from an existing quote fails with `worker_not_eligible`;
+  - the existing booking's completion and confirmation still work.
+- **A restricted customer:** cannot create requests, invite or accept (403). They can reply to staff, `me` shows
+  `restricted`, and booking works again after the restriction is lifted.
+- **Blocks:**
+  - messages both ways → 409, while history is kept;
+  - `by_me` is attributed correctly;
+  - no new invitation and no recommendation for the pair;
+  - only the blocker can unblock;
+  - a block during a booking keeps completion and dispute working.
+- **Retention:** old closed evidence content is removed (file and clip deleted, report kept, `removed` shown).
+  Open reports and reports on disputed bookings are preserved.
+
+### Walk-through (Urdu at 360 px for the customer and worker; Django Admin at desktop width for staff)
+
+The walk-through used a fictional rehearsal worker (03009990195, paused afterwards) and fictional staff:
+moderator 03009990900, and reviewer 03009990901 without `view_evidence`. Fixture AI was used.
+
+1. **Setup:** the worker sent a threatening message in the conversation. A second booking was taken to In
+   progress.
+2. **Report:** the customer opened **شکایت درج کریں** from the conversation, chose **دھمکیاں**, described it in
+   Urdu, attached a photo and sent it. The report page showed "کھلی".
+3. **Privacy:** the reported worker got 404 on the report and its evidence, and saw 0 reports in their list.
+   The booking stayed `in_progress`.
+4. **Staff:**
+   - The reviewer opening the evidence got **403**, with no access recorded.
+   - The moderator used the queue filtered by open/threats, opened the evidence (**200**, recorded), and chose
+     **Ask the reporter for more information** with an Urdu message and an internal note.
+5. **Reply:** the customer saw "عملے نے مزید معلومات مانگی ہیں" and the staff message. The internal note was not
+   visible. The customer replied in Urdu.
+6. **Block:** the customer tapped **مزید رابطہ بند کریں** and confirmed. A worker message then returned
+   `409 contact_blocked`, and the one earlier message was still in the history.
+7. **Resolution:** the moderator resolved the report with an Urdu message and **Restrict the reported account**
+   with a reason.
+   - The audit shows request_info, resolve and restrict with old/new state.
+   - The customer saw "حل شدہ" with the staff message.
+8. **Restricted worker:**
+   - The dashboard showed **آپ کا اکاؤنٹ محدود ہے** and the eligibility reason.
+   - A message → `403 account_restricted`; filing their own report → `201`.
+   - On the existing booking, requesting completion → `200`, and the customer's confirmation → `completed`.
+9. **Layouts:** no horizontal overflow on the customer and worker screens. The Admin audit page is wide at
+   desktop width (Django's own tables).
+
+### Known limitations
+
+- **No notifications:** the reporter sees staff updates only when opening "My reports".
+- **Evidence types:** evidence is images and audio only (no documents or video). A reply is text only.
+- **Admin tooling:** the decision form is a minimal Admin view. There is no assignment, SLA or bulk action.
+- **Appeals:** the reported person is not notified of reports or decisions, other than seeing a restriction
+  notice; there is no appeal flow.
+- **Retention is manual:** the retention command is not scheduled yet (M11).
+- **Image error wording:** the existing image error messages mention "the card" (from M4).
+- **Leftover data:** fictional rehearsal workers 03009990195–0199 and staff 03009990900/0901 remain in the
+  development database.
+
+### Next module
+
+**M11 Integration and delivery:** deployment configuration, scheduled retention, staff groups, and final
+end-to-end checks and submission materials.
 
 ---
 
