@@ -17,12 +17,12 @@ from typing import Any
 
 from rest_framework.exceptions import ErrorDetail, ValidationError
 
-from apps.catalog.models import Area, ServiceTag, Trade
+from apps.catalog.models import Area, City, ServiceTag, Trade
 from apps.providers.errors import ProviderInvalidOutput
 
 SCHEMA_VERSION = "1"
 
-# field name -> type: text:<max> | trade | services | area | int:<min>:<max>
+# field name -> type: text:<max> | trade | services | area | city | areas | int:<min>:<max>
 FIELD_TYPES: dict[str, dict[str, str]] = {
     "worker_introduction": {
         "name": "text:80",
@@ -40,15 +40,29 @@ FIELD_TYPES: dict[str, dict[str, str]] = {
         "preferred_time_text": "text:120",
         "budget_pkr": "int:0:10000000",
     },
+    # Worker signup screens answered by voice: suggestions only, applied to the screen's own choices.
+    "onboarding_work": {
+        "trade": "trade",
+        "services_offered": "services",
+        "primary_specialities": "services",
+        "services_not_offered": "services",
+    },
+    "onboarding_areas": {
+        "city": "city",
+        "service_areas": "areas",
+    },
 }
 REQUIRED: dict[str, tuple[str, ...]] = {
     "worker_introduction": ("name", "trade"),
     "job_description": ("description", "trade", "area", "preferred_time_text"),
+    "onboarding_work": (),
+    "onboarding_areas": (),
 }
 # (positive list, negated list) per kind
 SERVICE_LISTS = {
     "worker_introduction": ("services_offered", "services_not_offered"),
     "job_description": ("services", "services_excluded"),
+    "onboarding_work": ("services_offered", "services_not_offered"),
 }
 RAW_KEYS = {
     "worker_introduction": {"name", "trade", "years_experience", "service_mentions", "uncertain_fields"},
@@ -56,7 +70,10 @@ RAW_KEYS = {
         "description", "trade", "service_mentions", "area_phrase", "area_code",
         "preferred_time_text", "budget_pkr", "uncertain_fields",
     },
+    "onboarding_work": {"trade", "service_mentions", "main_speciality_code", "uncertain_fields"},
+    "onboarding_areas": {"city_code", "area_mentions", "uncertain_fields"},
 }
+LIST_KEYS = {"service_mentions", "area_mentions", "uncertain_fields"}
 
 
 @dataclass(frozen=True)
@@ -64,24 +81,38 @@ class CatalogIndex:
     trades: frozenset[str]
     services: dict[str, str]  # service code -> trade code
     areas: frozenset[str]
+    area_cities: dict[str, str] | None = None  # area code -> city code
+    cities: frozenset[str] = frozenset()
 
     @classmethod
     def load(cls) -> "CatalogIndex":
+        area_cities = dict(Area.objects.filter(is_active=True, city__is_active=True).values_list("code", "city__code"))
         return cls(
             trades=frozenset(Trade.objects.filter(is_active=True).values_list("code", flat=True)),
             services=dict(
                 ServiceTag.objects.filter(is_active=True, trade__is_active=True).values_list("code", "trade__code")
             ),
-            areas=frozenset(Area.objects.filter(is_active=True, city__is_active=True).values_list("code", flat=True)),
+            areas=frozenset(area_cities),
+            area_cities=area_cities,
+            cities=frozenset(City.objects.filter(is_active=True).values_list("code", flat=True)),
         )
 
     def fingerprint(self) -> str:
-        payload = json.dumps([sorted(self.trades), sorted(self.services.items()), sorted(self.areas)])
+        areas = sorted((self.area_cities or {}).items()) or sorted(self.areas)
+        payload = json.dumps([sorted(self.trades), sorted(self.services.items()), areas])
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 def catalog_context(kind: str) -> dict[str, Any]:
     """Reference data given to the provider (codes + bilingual labels; nothing private)."""
+    if kind == "onboarding_areas":
+        return {
+            "cities": [{"code": c.code, "en": c.label_en, "ur": c.label_ur} for c in City.objects.filter(is_active=True)],
+            "areas": [
+                {"code": a.code, "city": a.city.code, "en": a.label_en, "ur": a.label_ur}
+                for a in Area.objects.filter(is_active=True, city__is_active=True).select_related("city")
+            ],
+        }
     context: dict[str, Any] = {
         "trades": [
             {"code": t.code, "en": t.label_en, "ur": t.label_ur} for t in Trade.objects.filter(is_active=True)
@@ -112,23 +143,26 @@ def validate_raw(kind: str, raw: Any) -> dict[str, Any]:
     missing = RAW_KEYS[kind] - raw.keys()
     if missing:
         raise ProviderInvalidOutput("draft_missing_keys")
-    for key in RAW_KEYS[kind] - {"service_mentions", "uncertain_fields", "years_experience", "budget_pkr"}:
+    for key in RAW_KEYS[kind] - LIST_KEYS - {"years_experience", "budget_pkr"}:
         if raw[key] is not None and not isinstance(raw[key], str):
             raise ProviderInvalidOutput(f"draft_bad_type:{key}")
     for key in {"years_experience", "budget_pkr"} & RAW_KEYS[kind]:
         if raw[key] is not None and not _is_int(raw[key]):
             raise ProviderInvalidOutput(f"draft_bad_type:{key}")
-    mentions = raw["service_mentions"]
-    if not isinstance(mentions, list) or len(mentions) > 50:
-        raise ProviderInvalidOutput("draft_bad_type:service_mentions")
-    for mention in mentions:
-        if (
-            not isinstance(mention, dict)
-            or not isinstance(mention.get("phrase"), str)
-            or not (mention.get("service_code") is None or isinstance(mention.get("service_code"), str))
-            or not isinstance(mention.get("negated"), bool)
-        ):
-            raise ProviderInvalidOutput("draft_bad_mention")
+    for list_key, code_key in (("service_mentions", "service_code"), ("area_mentions", "area_code")):
+        if list_key not in RAW_KEYS[kind]:
+            continue
+        mentions = raw[list_key]
+        if not isinstance(mentions, list) or len(mentions) > 50:
+            raise ProviderInvalidOutput(f"draft_bad_type:{list_key}")
+        for mention in mentions:
+            if (
+                not isinstance(mention, dict)
+                or not isinstance(mention.get("phrase"), str)
+                or not (mention.get(code_key) is None or isinstance(mention.get(code_key), str))
+                or not isinstance(mention.get("negated"), bool)
+            ):
+                raise ProviderInvalidOutput("draft_bad_mention")
     uncertain = raw["uncertain_fields"]
     if not isinstance(uncertain, list) or not all(isinstance(item, str) for item in uncertain):
         raise ProviderInvalidOutput("draft_bad_type:uncertain_fields")
@@ -142,7 +176,57 @@ def _normalise(text: str) -> str:
     return unicodedata.normalize("NFKC", text).casefold()
 
 
+def _build_areas_draft(raw: dict[str, Any], catalog: CatalogIndex) -> dict[str, Any]:
+    """Areas the worker says they travel to; negated or ambiguous mentions are never selected."""
+    uncertain = {name for name in raw["uncertain_fields"] if name in FIELD_TYPES["onboarding_areas"]}
+    heard: dict[str, str] = {}
+    area_cities = catalog.area_cities or {}
+    city = (raw.get("city_code") or "").strip() or None
+    if city and city not in catalog.cities:
+        heard["city"], city = city[:80], None
+        uncertain.add("city")
+    wanted: list[str] = []
+    refused: list[str] = []
+    unmatched: list[dict[str, Any]] = []
+    for mention in raw["area_mentions"]:
+        code = (mention["area_code"] or "").strip() or None
+        phrase = mention["phrase"].strip()[:120]
+        if code not in area_cities:
+            if phrase:
+                unmatched.append({"phrase": phrase, "negated": mention["negated"]})
+            continue
+        target = refused if mention["negated"] else wanted
+        if code not in target:
+            target.append(code)
+    both = set(wanted) & set(refused)
+    if both:  # said both ways: select neither and ask
+        uncertain.add("service_areas")
+    wanted = [code for code in wanted if code not in both]
+    cities = {area_cities[code] for code in wanted}
+    if city is None and len(cities) == 1:
+        city = cities.pop()
+    elif city is None and len(cities) > 1:
+        uncertain.add("city")  # areas in two cities: the worker chooses one city
+        wanted = []
+    if city:
+        outside = [code for code in wanted if area_cities[code] != city]
+        if outside:
+            uncertain.add("service_areas")
+        wanted = [code for code in wanted if area_cities[code] == city]
+    fields = {"city": city, "service_areas": wanted}
+    return {
+        "fields": fields,
+        "missing": [name for name in ("city", "service_areas") if _empty(fields[name])],
+        "uncertain": sorted(uncertain),
+        "unmatched_mentions": unmatched[:20],
+        "heard": heard,
+        "not_selected": refused,  # areas the worker said they do NOT go to (shown, never selected)
+    }
+
+
 def build_draft(kind: str, raw: dict[str, Any], source_text: str, catalog: CatalogIndex) -> dict[str, Any]:
+    if kind == "onboarding_areas":
+        return _build_areas_draft(raw, catalog)
     field_names = FIELD_TYPES[kind]
     uncertain = {name for name in raw["uncertain_fields"] if name in field_names}
     heard: dict[str, str] = {}
@@ -179,7 +263,27 @@ def build_draft(kind: str, raw: dict[str, Any], source_text: str, catalog: Catal
     fields[positive_key] = positive
     fields[negated_key] = negated
 
-    if kind == "worker_introduction":
+    if kind == "onboarding_work":
+        if trade is None:
+            trades = {catalog.services[c] for c in positive + negated}
+            if len(trades) == 1:
+                trade = trades.pop()  # e.g. "I install fans" implies electrician
+                fields["trade"] = trade
+            elif len(trades) > 1:
+                uncertain.add("trade")
+        if trade:
+            if any(catalog.services[c] != trade for c in positive + negated):
+                uncertain.add(positive_key)
+            fields[positive_key] = [c for c in positive if catalog.services[c] == trade]
+            fields[negated_key] = [c for c in negated if catalog.services[c] == trade]
+        else:
+            fields[positive_key], fields[negated_key] = [], []
+        main = (raw.get("main_speciality_code") or "").strip() or None
+        # Only a service the worker clearly called their main work AND offers; otherwise left for the worker.
+        if main and main not in fields[positive_key]:
+            main, _ = None, uncertain.add("primary_specialities")
+        fields["primary_specialities"] = [main] if main else []
+    elif kind == "worker_introduction":
         name = (raw.get("name") or "").strip() or None
         if name and _normalise(name) not in _normalise(source_text):
             heard["name"] = name[:80]
@@ -277,6 +381,18 @@ def _clean_value(field_type: str, value: Any, catalog: CatalogIndex) -> Any:
         if value not in catalog.areas:
             raise ValueError("unknown_area")
         return value
+    if kind == "city":
+        if value is None:
+            return None
+        if value not in catalog.cities:
+            raise ValueError("unknown_city")
+        return value
+    if kind == "areas":
+        if not isinstance(value, list) or len(value) > 50 or not all(isinstance(v, str) for v in value):
+            raise ValueError("invalid")
+        if any(v not in catalog.areas for v in value):
+            raise ValueError("unknown_area")
+        return list(dict.fromkeys(value))
     if kind == "services":
         if not isinstance(value, list) or len(value) > 50 or not all(isinstance(v, str) for v in value):
             raise ValueError("invalid")
@@ -295,11 +411,12 @@ def validate_for_confirmation(kind: str, fields: dict[str, Any]) -> None:
     for name in REQUIRED[kind]:
         if _empty(fields.get(name)):
             errors[name] = _error("required", "This field is required before confirming.")
-    positive_key, negated_key = SERVICE_LISTS[kind]
-    if set(fields.get(positive_key) or []) & set(fields.get(negated_key) or []):
-        errors[negated_key] = _error(
-            "offered_and_excluded_overlap", "A service cannot be both included and excluded."
-        )
+    if kind in SERVICE_LISTS:
+        positive_key, negated_key = SERVICE_LISTS[kind]
+        if set(fields.get(positive_key) or []) & set(fields.get(negated_key) or []):
+            errors[negated_key] = _error(
+                "offered_and_excluded_overlap", "A service cannot be both included and excluded."
+            )
     if errors:
         raise ValidationError({"fields": errors})
 

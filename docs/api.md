@@ -175,7 +175,26 @@ ignored). Accepted: WAV (the in-app recorder: 16 kHz mono PCM), MP3, M4A/MP4 (AA
 script, English trade terms as spoken) and is never edited. The same clip + provider + model + hint returns
 the stored result (`reused: true`) without calling the provider again.
 
+Providers (`SPEECH_TO_TEXT_PROVIDER`): `elevenlabs` (Scribe `scribe_v3`) · `gemini` · `fixture` · `unconfigured`.
+- With Scribe, a transcript in Devanagari is retried once with `ELEVENLABS_STT_URDU_FALLBACK_MODEL` (default
+  `scribe_v2`) and `language_code=ur`. `model` then names the fallback, and its result is re-used like the primary
+  model's.
+- A transcript that is still not in Urdu script fails with `502 ai_output_invalid`
+  (`details.reason: "transcript_wrong_script"`).
+- Clips with purpose `report` are never transcribed (`400 not_transcribable`).
+
 ### Interpretation drafts
+
+Kinds: `worker_introduction`, `job_description`, and the two worker signup screens answered by voice (pitch
+update):
+- `onboarding_work`: fields `trade`, `services_offered`, `primary_specialities` (at most one, only when clearly said
+  and offered), `services_not_offered`.
+- `onboarding_areas`: fields `city`, `service_areas`. `draft.not_selected` lists the areas the worker said they do
+  NOT go to; these are never selected.
+
+Ambiguous choices stay empty and are listed in `draft.uncertain`. Providers (`INTERPRETATION_PROVIDER`): `groq`
+(strict JSON Schema) · `gemini` · `fixture` · `unconfigured`. For `job_description`, the draft field `description`
+is a faithful Urdu version of what was said (see [Job payload](#job-payload) → `urdu`).
 
 | Method & path | Request | Success | Errors |
 |---|---|---|---|
@@ -266,9 +285,28 @@ Screen 3: `PUT /workers/me/areas/` `{"city", "service_areas": []}` → the dashb
 `PATCH /workers/me/preferences/` `{"accepting_requests": bool}` → the dashboard payload. This is the worker's own
 choice and is separate from completion and identity.
 
+### Demo verification (event default, pitch update)
+
+`POST /identity/demo-verification/`: multipart `cnic_image` + `selfie_image` (sample images), worker only.
+- Each image is checked with the identity image limits (JPEG/PNG/WebP by content, ≤ 5 MB, ≥ 400 × 250 px).
+- Then the existing `demo_approved` status is recorded with method `demo_sample_upload`.
+- Returns `200 {"case": Case, "eligibility": {…}}`.
+- Nothing else happens: no OCR, extraction, face matching or registry lookup. The images are not stored and not sent
+  to any provider; only image metadata is kept.
+
+Errors:
+- `403 demo_verification_unavailable`: not a demo deployment.
+- `400`: a missing image (`required`).
+- `413 image_too_large`, `415 image_unsupported`, `400 image_dimensions`.
+- `409 verification_already_complete`: already approved.
+- `409 verification_not_editable`: suspended.
+
+A demo approval counts for eligibility only in demo mode.
+
 ### Identity verification
 
-Scanning, review and the registry check are separate steps. OCR never approves anything.
+Scanning, review and the registry check are separate steps. OCR never approves anything. (The web app now opens
+this flow at `/worker/verify/card`; `/worker/verify` is the demo verification above.)
 
 1. **Start:** `POST /identity/cases/` `{"consent": true}` → `201 {"case": Case, "provider": {…}}`.
    - Without consent: `400`, field `consent` → `consent_required`.
@@ -401,6 +439,18 @@ The rules below are checked on every save; if any fails the response is `400` an
 - Photos are never sent to AI interpretation.
 
 ### Job payload
+
+Pitch update: every job payload has `urdu`:
+`{"needed": bool, "text": "…", "status": "none" | "suggested" | "approved" | "outdated", "description_language": "ur" | "en" | "mixed" | null}`.
+- `needed` is true for English, Roman Urdu or mixed input. The customer's own words stay in `details.description`.
+- `text` is the Urdu version: the interpretation suggests it, and the customer edits and approves it.
+- `PATCH /jobs/{id}/` and `PATCH /jobs/{id}/shared-description/` accept `description_ur` (≤ 800 characters) and
+  `description_ur_approved` (bool).
+  - Approving needs Urdu script (`urdu_script_required`).
+  - Editing the text withdraws the approval.
+  - Changing `description` makes a suggested or approved version `outdated`.
+- The worker's shared summary carries `description_language` and `description_ur`. `description_ur` is set only when
+  the version was approved for the current description, otherwise `null`.
 
 ```json
 {"id": "…", "status": "draft", "created_at": "…Z", "updated_at": "…Z", "confirmed_at": null,
@@ -656,7 +706,14 @@ When a version is sent, the server runs two checks:
 1. **Deterministic rules:**
    - `timing_differs` (blocking; the customer answers): the proposed time falls outside the requested window.
    - `materials_amount_unknown` (a note, not blocking).
-2. **The configured checker** (`AGREEMENT_CHECK_PROVIDER`: `fixture` in demo · `gemini` · `unconfigured`). It
+2. **The configured checker** (`AGREEMENT_CHECK_PROVIDER`: `fixture` in demo · `groq` · `gemini` · `unconfigured`).
+   - Groq and Gemini get the merge rule and the conversation language.
+   - Same-code findings are merged.
+   - An answer whose findings can't be traced to the input fails as `ai_output_invalid:findings_ungrounded`, shown
+     as "could not run".
+   - An AI `timing_mismatch` is skipped when the `timing_differs` rule already applies to the version.
+
+   It
    receives only the shared request summary, the message texts the senders approved (the last 40) and the quote
    terms, with all times in one Asia/Karachi format. It never receives the address, access notes, photos, audio,
    names or phone numbers.

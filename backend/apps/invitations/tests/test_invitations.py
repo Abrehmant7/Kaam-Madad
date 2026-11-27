@@ -157,8 +157,10 @@ class InvitationTests(M6TestCase):
         self.assertIsNotNone(Invitation.objects.get(pk=invitation_id).seen_at)
         job = detail.json()["job"]
         self.assertEqual(job["area"], "isb-g-9")
-        self.assertEqual(set(job), {"description", "trade", "services", "services_excluded", "city", "area", "window_start",
-                                    "window_end", "budget_preference_pkr", "has_photos"})
+        self.assertEqual(set(job), {"description", "description_language", "description_ur", "trade", "services",
+                                    "services_excluded", "city", "area", "window_start", "window_end",
+                                    "budget_preference_pkr", "has_photos"})
+        self.assertIsNone(job["description_ur"])  # only a customer-approved Urdu version is ever shared
         text = detail.content.decode()
         for private in ("House 5", "Ring twice", "secret original", str(self.job.id), self.customer.phone_number):
             self.assertNotIn(private, text)

@@ -23,11 +23,106 @@ Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 >
 > Deployment and submission preparation are M11.
 > See [docs/progress.md](docs/progress.md).
+>
+> **Pitch improvements (27 Nov 2026):**
+> - ElevenLabs Scribe speech-to-text and Groq text AI (no Gemini key needed).
+> - Answer the worker signup questions by voice, and "Listen to my choices".
+> - Two-upload demo verification.
+> - English requests reach Urdu-speaking workers with a customer-approved Urdu description.
+> - The agreement check runs through Groq.
+>
+> See [Pitch configuration and rehearsal](#pitch-configuration-and-rehearsal-hackathon).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
 - Architecture and decisions: [docs/architecture.md](docs/architecture.md)
 - API contracts: [docs/api.md](docs/api.md)
 - Module progress, checks run, limitations: [docs/progress.md](docs/progress.md)
+
+## Pitch configuration and rehearsal (hackathon)
+
+The pitch runs on **ElevenLabs** for speech (Scribe speech-to-text and `eleven_v3` read-aloud) and **Groq** for text AI
+(`openai/gpt-oss-120b` with strict JSON Schema output). **No Gemini key is needed.** Gemini stays selectable.
+
+### Configure
+
+In `.env` (see [.env.example](.env.example)):
+
+```
+SPEECH_TO_TEXT_PROVIDER=elevenlabs
+TEXT_TO_SPEECH_PROVIDER=elevenlabs
+INTERPRETATION_PROVIDER=groq
+AGREEMENT_CHECK_PROVIDER=groq
+ELEVENLABS_API_KEY=<key>
+ELEVENLABS_VOICE_ID=<voice id>          # free plan: a premade voice, e.g. George JBFqnCBsd6RMkjVDRZzb
+GROQ_API_KEY=<key>
+```
+
+Optional: `ELEVENLABS_STT_MODEL` (default `scribe_v3`), `ELEVENLABS_STT_URDU_FALLBACK_MODEL` (default `scribe_v2`),
+`GROQ_MODEL` / `GROQ_INTERPRETATION_MODEL` / `GROQ_AGREEMENT_MODEL` (default `openai/gpt-oss-120b`),
+`GROQ_INTERPRETATION_REASONING_EFFORT` (`low`), `GROQ_AGREEMENT_REASONING_EFFORT` (`medium`),
+`GROQ_MAX_COMPLETION_TOKENS` (6000), `AI_PROVIDER_TIMEOUT_SECONDS` (20) and `AI_PROVIDER_MAX_RETRIES` (1).
+
+- **ElevenLabs key permissions:** one key serves both uses. If the key's scope is restricted, enable **Text to Speech**
+  (read-aloud) and **Speech to Text** (transcription). A key without Speech to Text access reports
+  `ai_provider_not_configured` for transcription.
+- **Urdu script:** in our live check `scribe_v3` wrote Urdu speech in Devanagari (Hindi script), even with
+  `language_code=ur`. The adapter retries such a transcript once with `scribe_v2` + `language_code=ur`, which returned
+  Urdu script with the English trade terms and the negation intact. If the result is still not Urdu script, it is
+  refused and the user continues manually.
+- **Keys stay on the server.** Only these go to providers: audio clips the user chose to transcribe (never report or
+  dispute evidence), and text the user typed or approved. Addresses, access notes, photos, phone numbers and CNIC
+  data are never sent.
+- **Failures:** a quota error or outage keeps the user's input and offers the manual path. A failed automatic check
+  shows as "could not run", never as a pass.
+- **Re-use:** unchanged input is not sent twice (transcripts, suggestions and speech are re-used).
+
+### Check the providers (prints no keys)
+
+```bash
+cd backend   # venv active
+python manage.py check_ai_providers --only interpretation      # Groq: English job → Urdu description, signup by voice
+python manage.py check_ai_providers --only agreement_check     # Groq: pitch example, revision, Roman Urdu, timing
+python manage.py check_ai_providers --only text_to_speech --speak "کل شام دو پنکھے لگانے ہیں۔" --save-speech speech.mp3
+python manage.py check_ai_providers --only speech_to_text --audio speech.mp3 --language ur   # Scribe
+```
+
+On Windows, set `PYTHONIOENCODING=utf-8` first so Urdu prints in the terminal. Each line says `[OK]` or `[FAIL]`
+with the reason. The agreement check expects exactly one `materials_responsibility` finding for the pitch example,
+none after the revision, one for Roman Urdu, and two (materials + timing) for the timing case.
+
+### Rehearsal script (fictional data, about 6 minutes)
+
+Before the rehearsal (from `backend/`): `python manage.py migrate`, `python manage.py seed_catalog`, then
+`python manage.py seed_demo_workers`. Run `runserver` and `npm run dev`, and use three browser sessions: a worker,
+a customer, and demo worker `03009990101` / `Demo-Worker-2026`.
+
+1. **Worker signup (Urdu):** tap **مجھے کام چاہیے**, create the account (screen 1), then:
+   - On screen 2, open **آواز سے جواب دیں** and say *"میں الیکٹریشن ہوں، پنکھے لگاتا ہوں اور wiring ٹھیک کرتا
+     ہوں۔ میرا خاص کام پنکھے لگانا ہے۔ UPS کا کام نہیں کرتا۔"* The choices fill in, UPS goes under "not offered",
+     and you check and save.
+   - On screen 3, say *"اسلام آباد میں G-9 اور G-10، F-8 نہیں جاتا"*. Then tap **میرے انتخاب سنیں**.
+2. **Demo verification:** after screen 3, choose **نمونے کی تصویر لیں** for the sample CNIC and the sample selfie,
+   then **ڈیمو تصدیق مکمل کریں**. You should see "ڈیمو تصدیق مکمل ہو گئی۔". It is labelled as a demo with sample
+   images, not NADRA.
+3. **English job request:** as the customer, choose English and type (or say) *"Please install two ceiling fans in
+   G-9 tomorrow evening. My budget is Rs. 1,200 including materials. No AC service needed."*
+   - On the details screen, your own words stay as the description. Below them, check the **Urdu description for
+     the worker**, edit it if needed, and tick the approval.
+   - Pick the date and time, review, then confirm.
+4. **Matching:** **Find a worker** lists the G-9 fan specialist `03009990101` first when the database holds only the
+   seeded demo workers. Earlier fictional rehearsal workers with the same speciality tie with it. The paused demo
+   worker is never listed. Invite `03009990101`.
+5. **Worker side (Urdu):** as `03009990101`, open the invitation. The approved Urdu description comes first, and the
+   original is marked English. **پڑھ کر سنائیں** reads the work, the Urdu description, the area and the time.
+6. **Quote conflict:** the worker writes *"Rs. 1,200 is for labour only. You will buy the fans and wiring
+   yourself."* and sends a quote: Rs. 1,200 total, materials supplied by the customer.
+   - The automatic check shows **one** materials question.
+   - Record a clarification (**Terms changed**). The worker replies *"OK, I will bring the materials. Rs. 1,200
+     including materials."* and sends a revised quote with materials included.
+   - The check comes back with **no findings**, and the quote is ready for the customer to accept.
+
+Without keys (development fixtures), the same flow runs and every simulated result is labelled "Simulated result".
+In fixture mode the Urdu description is assembled from catalog labels, not translated.
 
 ## Stack
 
@@ -192,11 +287,11 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 |---|---|
 | SMS / OTP delivery | **Not integrated.** Demo mode simulates codes (no SMS). With `PHONE_VERIFICATION_PROVIDER=unconfigured` the app honestly says SMS confirmation is unavailable. Live mode refuses to start with the demo provider. |
 | CNIC OCR | **Implemented** (M4): local Tesseract on the backend host (no external service). Reads the printed English name and number. |
-| NADRA / identity verification | **Not integrated** (needs authorised access). Demo deployments use a **simulated** fictional registry; demo approvals never count in live mode. |
-| Speech-to-text, interpretation, text-to-speech | **Implemented** (M3): Gemini (speech-to-text, interpretation); Azure AI Speech or ElevenLabs `eleven_v3` (Urdu read-aloud, selectable). Need keys in `.env`; without them development uses labelled fixtures and production reports "not configured". Live results on this machine are recorded in `docs/progress.md` — see [Live check](#live-check-with-real-providers). |
+| NADRA / identity verification | **Not integrated** (needs authorised access). Demo deployments use a **two-upload demo verification** with sample images (the M4 card scan + fictional registry is still at `/worker/verify/card`); demo approvals never count in live mode. |
+| Speech-to-text, interpretation, text-to-speech | **Implemented** (M3, pitch update): speech-to-text with ElevenLabs Scribe (`scribe_v3`, with a `scribe_v2` Urdu-script fallback) or Gemini; interpretation with Groq (`openai/gpt-oss-120b`) or Gemini; read-aloud with ElevenLabs `eleven_v3` or Azure AI Speech. All selectable. Need keys in `.env`; without them development uses labelled fixtures and production reports "not configured". See [Pitch configuration](#pitch-configuration-and-rehearsal-hackathon). |
 | Customer job requests | **Implemented** (M5): voice/text description, review, confirmation, private photos |
 | Recommendations and invitations | **Implemented** (M6): rule-based matching with reasons, one active invitation per request |
-| Conversations, quotations, agreement check | **Implemented** (M7): private text and voice-note messages, structured versioned quotes, agreement check (Gemini or a labelled demo fixture) |
+| Conversations, quotations, agreement check | **Implemented** (M7): private text and voice-note messages, structured versioned quotes, agreement check (Groq, Gemini or a labelled demo fixture) |
 | Acceptance, bookings, arrival codes | **Implemented** (M8): booking from an accepted quote, no double-booking, one-time arrival code, cancellation and changes |
 | Completion, disputes, reviews | **Implemented** (M9): customer-confirmed completion, staff dispute outcome in Django Admin, one review per completed job (typed or voice draft), work history in recommendations |
 | Misconduct reports and moderation | **Implemented** (M10): private reports with evidence, staff queue with audited decisions in Django Admin, restrictions, contact blocking, evidence retention command |
@@ -342,7 +437,14 @@ python manage.py check_ai_providers --only cnic_ocr --cnic-image ..\docs\demo\cn
      login resumes at the right screen.
 2. The **dashboard** is usable straight away. It shows profile completion, identity status and the
    "accepting requests" choice separately, and explains why the worker cannot take jobs yet.
-3. Tap **Verify identity to take jobs**:
+3. **Demo verification (event default, pitch update):** after screen 3, or later from **Verify identity to take
+   jobs**, the worker adds a **sample CNIC** and a **sample selfie**. **Use the sample image** loads the fictional
+   samples from `frontend/public/demo-samples/`.
+   - The server checks both only as images (type, ≤ 5 MB, ≥ 400 × 250 px). It runs no OCR, face matching or
+     registry lookup, keeps nothing, and sends nothing to a provider.
+   - It records the existing demo approval and shows "Demo verification complete".
+   - It is refused outside demo mode, and it is not NADRA verification.
+4. **Card scan (M4, optional):** open `/worker/verify/card` for the earlier flow:
    1. Give consent.
    2. **Take a photo** or **Upload a photo** of a DEMO card from [`docs/demo/cnic/`](docs/demo/cnic/).
    3. Check the name and number Tesseract read, correct them if needed, and submit.
@@ -690,7 +792,7 @@ one.
 - **Libraries**: listed with versions in [docs/architecture.md](docs/architecture.md#1-stack-resolved-versions-m1),
   `backend/requirements.txt` and `frontend/package-lock.json`. Icons: lucide-react (ISC). Urdu font: Noto Nastaliq Urdu (SIL Open Font
   License) via `@fontsource/noto-nastaliq-urdu`, self-hosted.
-- **External services / AI providers**: Google Gemini API (speech-to-text, interpretation, quotation agreement check) and Azure AI Speech or ElevenLabs (text-to-speech), used only when keys are configured; M2 phone confirmation is a labelled simulation. CNIC OCR uses the locally installed
+- **External services / AI providers**: ElevenLabs (Scribe speech-to-text and `eleven_v3` text-to-speech), Groq (`openai/gpt-oss-120b`: interpretation, Urdu job descriptions, quotation agreement check), and optionally Google Gemini API (speech-to-text, interpretation, agreement check) and Azure AI Speech (text-to-speech), used only when keys are configured; M2 phone confirmation is a labelled simulation. CNIC OCR uses the locally installed
   Tesseract OCR engine (Apache-2.0) via its command line, with Pillow (MIT-CMU) for image checks. The identity
   registry is a local, fictional, demo-only simulation. OTP and NADRA providers are not integrated.
 - **AI coding tools**: this codebase is being written with AI coding assistance (Claude Code, Anthropic).

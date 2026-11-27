@@ -70,6 +70,8 @@ class IdentityVerification(models.Model):
 
     class Method(models.TextChoices):
         DEMO_REGISTRY = "demo_registry", _("Demo registry lookup (fictional records)")
+        # Event demo: two SAMPLE uploads checked only as images (no OCR, face match or registry). Demo only.
+        DEMO_SAMPLE_UPLOAD = "demo_sample_upload", _("Demo verification with sample images (no identity check)")
         # Reserved: only with authorised access and a contract (ID-02). Not implemented.
         NADRA = "nadra", _("NADRA (authorised access)")
         MANUAL_REVIEW = "manual_review", _("Manual staff review")

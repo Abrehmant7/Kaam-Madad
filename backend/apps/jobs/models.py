@@ -54,8 +54,21 @@ class JobRequest(models.Model):
         help_text=_("AI suggestions used to pre-fill the draft (editable)."),
     )
 
-    # Customer-confirmed details.
+    class UrduStatus(models.TextChoices):
+        NONE = "", _("No Urdu version")
+        SUGGESTED = "suggested", _("Suggested (not yet approved by the customer)")
+        APPROVED = "approved", _("Approved by the customer")
+        OUTDATED = "outdated", _("Outdated: the description changed after it was written")
+
+    # Customer-confirmed details. ``description`` is shared with invited workers in the customer's own words.
     description = models.TextField(blank=True, default="")
+    # Urdu version of ``description`` for an Urdu-speaking worker (English / Roman Urdu / mixed input only).
+    # Shared ONLY when approved by the customer for the CURRENT description (``description_ur_basis`` matches).
+    description_ur = models.TextField(blank=True, default="")
+    description_ur_status = models.CharField(max_length=12, choices=UrduStatus.choices, blank=True, default="")
+    description_ur_basis = models.CharField(
+        max_length=64, blank=True, default="", help_text=_("Digest of the description the Urdu version was made for."),
+    )
     trade = models.ForeignKey(Trade, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     services = models.ManyToManyField(ServiceTag, blank=True, related_name="job_requests")
     services_excluded = models.ManyToManyField(ServiceTag, blank=True, related_name="+")

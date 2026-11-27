@@ -305,6 +305,43 @@ def submit_details(case: IdentityVerification, name: str, digits: str) -> dict:
     return result.extra
 
 
+class DemoVerificationUnavailable(ApiError):
+    status_code = status.HTTP_403_FORBIDDEN
+    default_code = "demo_verification_unavailable"
+    default_detail = "Demo verification is only available in a demo deployment."
+
+
+DEMO_SAMPLE_CONSENT_VERSION = "demo-sample-v1"  # max 16 characters
+
+
+def demo_sample_verify(user, cnic_image: bytes, selfie_image: bytes) -> IdentityVerification:
+    """Event demo flow: a sample CNIC and a sample selfie, each validated with the normal image limits, then the
+    existing ``demo_approved`` status. Nothing else is checked: no OCR, name/number extraction, face matching or
+    registry lookup. The images are never stored and never sent to a provider; only image metadata is kept.
+
+    Refused outside a demo deployment (the approval would not count there anyway: see ``eligibility``).
+    """
+    if not demo_mode():
+        raise DemoVerificationUnavailable()
+    card_type, card_width, card_height = inspect_image(cnic_image)
+    inspect_image(selfie_image)
+    now = timezone.now()
+    with transaction.atomic():
+        case = start_case(user)  # same rules: suspended → locked; already approved → 409; earlier attempt superseded
+        case.consent_given_at, case.consent_version = now, DEMO_SAMPLE_CONSENT_VERSION
+        case.scan_count, case.scanned_at = 1, now
+        case.scan_mime_type, case.scan_width, case.scan_height, case.scan_size_bytes = (
+            card_type, card_width, card_height, len(cnic_image),
+        )
+        case.method = IdentityVerification.Method.DEMO_SAMPLE_UPLOAD
+        case.status = IdentityVerification.Status.DEMO_APPROVED
+        case.registry_provider, case.registry_simulated = "demo_sample_upload", True
+        case.decided_at = now
+        case.save()
+    logger.info("Demo verification with sample images recorded (no identity check).")
+    return case
+
+
 # --- Payloads -----------------------------------------------------------------------------------
 
 

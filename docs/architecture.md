@@ -960,3 +960,46 @@ API contracts: [api.md § Reports, moderation, restrictions and blocks](api.md#r
 - Create staff groups for the three permissions.
 - Configure production retention and a real review team (SAFE-02).
 - Optionally add notifications to reporters.
+
+## 17. Pitch improvements — providers, voice signup, demo verification, Urdu descriptions (27 Nov 2026)
+
+**Providers.** The registry now selects:
+- `SPEECH_TO_TEXT_PROVIDER=elevenlabs`: `ElevenLabsSpeechToText` (Scribe, multipart through `providers.http.post`,
+  with the shared ElevenLabs error map in `providers/elevenlabs.py`).
+- `INTERPRETATION_PROVIDER=groq` and `AGREEMENT_CHECK_PROVIDER=groq`: `GroqInterpretation` and
+  `GroqAgreementChecker`, built on `providers/groq.py` (chat completions, strict JSON Schema via
+  `strict_schema()`, gpt-oss reasoning effort, no reasoning text returned).
+
+Decisions:
+- **Model output is untrusted.** It is still validated by `voice.drafts` (catalog codes, negation, ambiguity) and
+  `agreement.verify_findings` (sources must appear in the input). Groq's schema enforcement is an extra guard, not
+  a substitute.
+- **Ungrounded answers fail.** A model answer whose findings are all ungrounded raises `findings_ungrounded`, so it
+  is stored as "could not run", never as a pass. Same-code findings are merged in code as well as by the
+  instruction.
+- **Urdu script from Scribe.** A live check showed `scribe_v3` writing Urdu speech in Devanagari. The adapter retries
+  once with `ELEVENLABS_STT_URDU_FALLBACK_MODEL` (`scribe_v2` + `language_code=ur`) and refuses Devanagari
+  otherwise. `services.transcribe` re-uses a stored transcript from either model (`provider.alternate_models`).
+- **Timeouts and retries** keep the existing per-attempt budget (`AI_PROVIDER_TIMEOUT_SECONDS`,
+  `AI_PROVIDER_MAX_RETRIES`). The fallback adds at most one call.
+
+**Voice signup.** Two interpretation kinds, `onboarding_work` and `onboarding_areas`, return suggestions for one
+screen. The page applies them to its own editable tiles; the normal `PUT /workers/me/work|areas/` (server-validated)
+is the only save. "Listen to my choices" builds its text on the client from the selections and catalog labels and
+uses the existing synthesis endpoint (per-owner cache).
+
+**Demo verification.** `identity.demo_sample_verify` re-uses `start_case` (supersede, suspension, already-approved
+rules) and `inspect_image` (limits). It records `demo_approved` with method `demo_sample_upload`. It is refused
+unless `DEPLOYMENT_MODE=demo`, and eligibility still counts demo approvals only in demo mode. The M4 OCR and
+registry flow is unchanged and reachable at `/worker/verify/card`.
+
+**Urdu descriptions.** `JobRequest` gains `description_ur`, `description_ur_status` (suggested / approved /
+outdated) and `description_ur_basis` (a digest of the description it was written or approved for). The rules live in
+`apps/jobs/urdu.py`:
+- **Suggestions:** they come from the same interpretation call that suggests the catalog fields.
+- **Edits:** the customer edits and approves it; any edit needs approval again.
+- **Changes:** a change to `description` makes it outdated.
+- **Sharing:** `matching_summary` shares it only while the basis matches the current description. The invitation
+  snapshot therefore never carries unapproved or outdated text.
+- **Agreement check:** an approved version is also a verifiable source for the agreement check
+  (`request/description_ur`).

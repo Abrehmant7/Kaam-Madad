@@ -3,7 +3,9 @@
 M6 must build recommendations and invitation previews from ``matching_summary(job)`` only. It
 leaves out everything private to the customer: the exact address, access notes, photos, the
 original audio/transcript and the customer's identity. The customer's budget preference is
-included as such (never as a quote).
+included as such (never as a quote). ``description_ur`` is the Urdu version ONLY when the customer approved
+it for the current description (else null); ``description_language`` tells the worker which language the
+customer's own description is in.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 import re
 from datetime import UTC
 
+from . import urdu
 from .models import JobRequest
 
 # Eastern Arabic / Urdu digits → ASCII, so "۰۳۰۰…" is recognised too.
@@ -49,6 +52,8 @@ def matching_summary(job: JobRequest) -> dict:
     return {
         "id": str(job.id),
         "description": job.description,
+        "description_language": urdu.description_language(job) or None,
+        "description_ur": urdu.shareable(job),
         "trade": job.trade.code,
         "services": sorted(s.code for s in job.services.all()),
         "services_excluded": sorted(s.code for s in job.services_excluded.all()),

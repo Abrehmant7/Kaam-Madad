@@ -32,7 +32,8 @@ import httpx
 from django.conf import settings
 
 from . import http
-from .errors import ProviderError, ProviderInvalidOutput, ProviderLimitReached, ProviderNotConfigured, ProviderUnavailable
+from .elevenlabs import classify_error as elevenlabs_classify_error
+from .errors import ProviderInvalidOutput, ProviderNotConfigured
 
 LANGUAGES = ("ur", "en")
 # File extension for each audio type a provider may return (used for private storage names).
@@ -137,38 +138,8 @@ class AzureTextToSpeech(TextToSpeechProvider):
 _ELEVENLABS_VOICE_ID = re.compile(r"^[A-Za-z0-9]{1,40}$")
 _ELEVENLABS_MODEL_ID = re.compile(r"^[a-z0-9_]{1,40}$")
 _ELEVENLABS_FORMAT = re.compile(r"^(mp3|wav)_\d{4,5}(_\d{2,3})?$")
-# Documented ElevenLabs error codes (``{"detail": {"status": <code>, ...}}``) mapped to our taxonomy.
-# Unknown codes fall back to the HTTP-status mapping in http.post. Provider text is never echoed.
-_ELEVENLABS_ERRORS = {
-    "quota_exceeded": ProviderLimitReached,
-    "too_many_concurrent_requests": ProviderLimitReached,
-    "system_busy": ProviderUnavailable,
-    "invalid_api_key": ProviderNotConfigured,
-    "voice_not_found": ProviderNotConfigured,
-    # 402: e.g. free plans cannot use Voice Library voices through the API — choose another voice or plan.
-    "paid_plan_required": ProviderNotConfigured,
-}
-
-
-def _elevenlabs_error(response: httpx.Response) -> ProviderError | None:
-    try:
-        body = response.json()
-    except ValueError:
-        return None
-    detail = body.get("detail") if isinstance(body, dict) else None
-    if not isinstance(detail, dict):
-        return None
-    # Check both fields: e.g. {"code": "invalid_api_key", "status": "api_key_id_used_as_api_key"}.
-    for code in (detail.get("status"), detail.get("code")):
-        error_class = _ELEVENLABS_ERRORS.get(code) if isinstance(code, str) else None
-        if error_class is not None:
-            reason = "credentials_rejected" if code == "invalid_api_key" else code
-            return error_class(reason, retry_after_seconds=http.retry_after(response))
-    if detail.get("type") == "authentication_error":
-        return ProviderNotConfigured("credentials_rejected")
-    if detail.get("type") == "payment_required":
-        return ProviderNotConfigured("paid_plan_required")
-    return None
+# Documented ElevenLabs error codes, shared with the Scribe speech-to-text adapter (apps.providers.elevenlabs).
+_elevenlabs_error = elevenlabs_classify_error
 
 
 class ElevenLabsTextToSpeech(TextToSpeechProvider):

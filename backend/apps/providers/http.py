@@ -45,15 +45,21 @@ def post(
     headers: dict[str, str],
     json: Any = None,
     content: bytes | str | None = None,
+    data: dict[str, Any] | None = None,
+    files: dict[str, Any] | None = None,
     classify_error: Callable[[httpx.Response], ProviderError | None] | None = None,
 ) -> httpx.Response:
+    """POST with the retry policy above. ``data`` + ``files`` send multipart/form-data (audio uploads)."""
     attempts = 1 + max(0, int(settings.AI_PROVIDER_MAX_RETRIES))
     reason = "unknown"
     for attempt in range(attempts):
         if attempt:
             _sleep(min(0.5 * (2 ** (attempt - 1)), 4.0))
         try:
-            response = client.post(url, headers=headers, json=json, content=content)
+            if files is not None:
+                response = client.post(url, headers=headers, data=data, files=files)
+            else:
+                response = client.post(url, headers=headers, json=json, content=content)
         except httpx.TimeoutException:
             reason = "timeout"
             logger.warning("Provider %s: attempt %d timed out.", provider, attempt + 1)

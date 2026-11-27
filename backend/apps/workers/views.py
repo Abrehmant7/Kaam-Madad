@@ -246,6 +246,38 @@ class IdentityScanView(APIView):
 
 
 @method_decorator(never_cache, name="dispatch")
+class DemoVerificationView(APIView):
+    """POST multipart {cnic_image, selfie_image} — event demo: two SAMPLE images, validated as images only, then
+    "Demo verification complete". Demo deployments only (403 otherwise). Images are not stored or sent anywhere."""
+
+    permission_classes = [IsWorker]
+    parser_classes = [MultiPartParser]
+    throttle_classes = [IdentityThrottle]
+
+    def post(self, request):
+        if not identity.demo_mode():
+            raise identity.DemoVerificationUnavailable()
+        limit = settings.IDENTITY_LIMITS["MAX_IMAGE_BYTES"]
+        if int(request.META.get("CONTENT_LENGTH") or 0) > 2 * limit + 64 * 1024:
+            raise identity.ImageTooLarge()
+        uploads = {name: request.data.get(name) for name in ("cnic_image", "selfie_image")}
+        missing = [name for name, upload in uploads.items() if upload is None or not hasattr(upload, "read")]
+        if missing:
+            raise ValidationError({name: [ErrorDetail("Add a sample image.", code="required")] for name in missing})
+        try:
+            if any(upload.size > limit for upload in uploads.values()):
+                raise identity.ImageTooLarge()
+            case = identity.demo_sample_verify(
+                request.user, uploads["cnic_image"].read(), uploads["selfie_image"].read()
+            )
+        finally:
+            for upload in uploads.values():
+                upload.close()  # Django deletes any temporary upload file when it is closed
+        profile = get_profile(request.user)
+        return Response({"case": identity.case_payload(case), "eligibility": worker_eligibility(request.user, profile).as_dict()})
+
+
+@method_decorator(never_cache, name="dispatch")
 class IdentitySubmitView(APIView):
     """POST {name, cnic_number} — details the worker confirmed or corrected → registry check."""
 

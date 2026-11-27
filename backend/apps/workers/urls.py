@@ -10,6 +10,7 @@ worker_patterns = [
 ]
 
 identity_patterns = [
+    path("demo-verification/", views.DemoVerificationView.as_view(), name="identity-demo-verification"),
     path("cases/", views.IdentityCasesView.as_view(), name="identity-cases"),
     path("cases/<uuid:case_id>/scan/", views.IdentityScanView.as_view(), name="identity-scan"),
     path("cases/<uuid:case_id>/submit/", views.IdentitySubmitView.as_view(), name="identity-submit"),

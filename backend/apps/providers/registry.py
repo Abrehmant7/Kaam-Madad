@@ -11,11 +11,29 @@ from django.conf import settings
 
 from config.env import DEPLOYMENT_MODE_DEMO
 
-from .agreement import AgreementChecker, FixtureAgreementChecker, GeminiAgreementChecker, UnconfiguredAgreementChecker
+from .agreement import (
+    AgreementChecker,
+    FixtureAgreementChecker,
+    GeminiAgreementChecker,
+    GroqAgreementChecker,
+    UnconfiguredAgreementChecker,
+)
 from .errors import ProviderNotConfigured
 from .identity import CnicOcrProvider, TesseractCnicOcr, UnconfiguredCnicOcr
-from .interpretation import FixtureInterpretation, GeminiInterpretation, InterpretationProvider, UnconfiguredInterpretation
-from .speech_to_text import FixtureSpeechToText, GeminiSpeechToText, SpeechToTextProvider, UnconfiguredSpeechToText
+from .interpretation import (
+    FixtureInterpretation,
+    GeminiInterpretation,
+    GroqInterpretation,
+    InterpretationProvider,
+    UnconfiguredInterpretation,
+)
+from .speech_to_text import (
+    ElevenLabsSpeechToText,
+    FixtureSpeechToText,
+    GeminiSpeechToText,
+    SpeechToTextProvider,
+    UnconfiguredSpeechToText,
+)
 from .text_to_speech import (
     AzureTextToSpeech,
     ElevenLabsTextToSpeech,
@@ -35,6 +53,8 @@ def speech_to_text() -> SpeechToTextProvider:
     choice = settings.SPEECH_TO_TEXT_PROVIDER
     if choice == FIXTURE:
         return FixtureSpeechToText() if _fixture_allowed() else UnconfiguredSpeechToText()
+    if choice == "elevenlabs":
+        return ElevenLabsSpeechToText()
     if choice == "gemini":
         return GeminiSpeechToText()
     return UnconfiguredSpeechToText()
@@ -44,6 +64,8 @@ def interpretation() -> InterpretationProvider:
     choice = settings.INTERPRETATION_PROVIDER
     if choice == FIXTURE:
         return FixtureInterpretation() if _fixture_allowed() else UnconfiguredInterpretation()
+    if choice == "groq":
+        return GroqInterpretation()
     if choice == "gemini":
         return GeminiInterpretation()
     return UnconfiguredInterpretation()
@@ -64,6 +86,8 @@ def agreement_checker() -> AgreementChecker:
     choice = settings.AGREEMENT_CHECK_PROVIDER
     if choice == FIXTURE:
         return FixtureAgreementChecker() if _fixture_allowed() else UnconfiguredAgreementChecker()
+    if choice == "groq":
+        return GroqAgreementChecker()
     if choice == "gemini":
         return GeminiAgreementChecker()
     return UnconfiguredAgreementChecker()

@@ -86,10 +86,12 @@ PHONE_VERIFICATION_POLICY = {
 # Audio and AI providers (M3) — separately configurable per capability
 # --------------------------------------------------------------------------
 # fixture = deterministic simulated results (demo deployments only; refused in live mode)
-# gemini / azure / elevenlabs = real providers; unconfigured = honest "not available".
+# elevenlabs / groq / gemini / azure = real providers; unconfigured = honest "not available".
 # Each environment module supplies defaults (development: fixture; production: unconfigured).
-SPEECH_TO_TEXT_PROVIDER = env_choice("SPEECH_TO_TEXT_PROVIDER", {"fixture", "gemini", "unconfigured"})
-INTERPRETATION_PROVIDER = env_choice("INTERPRETATION_PROVIDER", {"fixture", "gemini", "unconfigured"})
+# Pitch configuration: SPEECH_TO_TEXT_PROVIDER=elevenlabs (Scribe), TEXT_TO_SPEECH_PROVIDER=elevenlabs,
+# INTERPRETATION_PROVIDER=groq, AGREEMENT_CHECK_PROVIDER=groq — no Gemini key needed.
+SPEECH_TO_TEXT_PROVIDER = env_choice("SPEECH_TO_TEXT_PROVIDER", {"fixture", "elevenlabs", "gemini", "unconfigured"})
+INTERPRETATION_PROVIDER = env_choice("INTERPRETATION_PROVIDER", {"fixture", "groq", "gemini", "unconfigured"})
 TEXT_TO_SPEECH_PROVIDER = env_choice(
     "TEXT_TO_SPEECH_PROVIDER", {"fixture", "azure", "elevenlabs", "unconfigured"}
 )
@@ -117,9 +119,25 @@ ELEVENLABS_API_BASE = env_str("ELEVENLABS_API_BASE", "https://api.elevenlabs.io"
 ELEVENLABS_OUTPUT_FORMAT = env_str("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128")
 # Zero-retention mode (enable_logging=false) is only available to ElevenLabs enterprise accounts.
 ELEVENLABS_ZERO_RETENTION = env_bool("ELEVENLABS_ZERO_RETENTION", False)
+# ElevenLabs Scribe speech-to-text (SPEECH_TO_TEXT_PROVIDER=elevenlabs); same key, needs "Speech to Text" access.
+ELEVENLABS_STT_MODEL = env_str("ELEVENLABS_STT_MODEL", "scribe_v3")
+# Live check 27 Nov 2026: scribe_v3 wrote Urdu speech in Devanagari; scribe_v2 + language_code=ur wrote Urdu script.
+# A Devanagari transcript is retried once with this model (empty = no retry; the transcript is then refused).
+ELEVENLABS_STT_URDU_FALLBACK_MODEL = env_str("ELEVENLABS_STT_URDU_FALLBACK_MODEL", "scribe_v2")
 
-# Agreement-gap check (M7, GAP-01): fixture (demo only) | gemini | unconfigured.
-AGREEMENT_CHECK_PROVIDER = env_choice("AGREEMENT_CHECK_PROVIDER", {"fixture", "gemini", "unconfigured"})
+# Groq (INTERPRETATION_PROVIDER=groq, AGREEMENT_CHECK_PROVIDER=groq). Key stays on the server.
+GROQ_API_KEY = env_str("GROQ_API_KEY")
+GROQ_API_BASE = env_str("GROQ_API_BASE", "https://api.groq.com/openai/v1")
+GROQ_MODEL = env_str("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_INTERPRETATION_MODEL = env_str("GROQ_INTERPRETATION_MODEL", GROQ_MODEL)
+GROQ_AGREEMENT_MODEL = env_str("GROQ_AGREEMENT_MODEL", GROQ_MODEL)
+# gpt-oss reasoning effort: low | medium | high. Reasoning tokens count towards the completion budget.
+GROQ_INTERPRETATION_REASONING_EFFORT = env_str("GROQ_INTERPRETATION_REASONING_EFFORT", "low")
+GROQ_AGREEMENT_REASONING_EFFORT = env_str("GROQ_AGREEMENT_REASONING_EFFORT", "medium")
+GROQ_MAX_COMPLETION_TOKENS = env_int("GROQ_MAX_COMPLETION_TOKENS", 6000, minimum=1000)
+
+# Agreement-gap check (M7, GAP-01): fixture (demo only) | groq | gemini | unconfigured.
+AGREEMENT_CHECK_PROVIDER = env_choice("AGREEMENT_CHECK_PROVIDER", {"fixture", "groq", "gemini", "unconfigured"})
 GEMINI_AGREEMENT_MODEL = env_str("GEMINI_AGREEMENT_MODEL", GEMINI_INTERPRETATION_MODEL)
 # Output budget including the model's reasoning; 1500 was too small for gemini-3 models (truncated JSON).
 GEMINI_AGREEMENT_MAX_TOKENS = env_int("GEMINI_AGREEMENT_MAX_TOKENS", 6000, minimum=1000)

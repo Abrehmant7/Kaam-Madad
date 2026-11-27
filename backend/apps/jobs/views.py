@@ -34,7 +34,7 @@ from apps.voice.models import AudioClip, Interpretation, Purpose, Transcription
 from . import photos as photo_rules
 from apps.reports.services import require_unrestricted
 
-from . import rules
+from . import rules, urdu
 from .models import JobPhoto, JobRequest
 
 logger = logging.getLogger(__name__)
@@ -144,6 +144,8 @@ def job_payload(job: JobRequest) -> dict:
             "budget_pkr": str(state.budget_pkr) if state.budget_pkr is not None else None,
         },
         "suggestions": suggestions_payload(job),
+        # Urdu version of the description for an Urdu-speaking worker: shared only once approved (apps.jobs.urdu).
+        "urdu": urdu.payload(job),
         "photos": [photo_payload(photo) for photo in job.photos.all()],
         "issues": {name: [code for code, _ in items] for name, items in issues.items()},
         "ready_to_confirm": job.status == JobRequest.Status.DRAFT and not issues,
@@ -237,6 +239,19 @@ class DetailsSerializer(StrictFieldsMixin, serializers.Serializer):
     budget_pkr = serializers.DecimalField(
         required=False, allow_null=True, max_digits=10, decimal_places=2, min_value=0, max_value=10_000_000,
     )
+    # The Urdu version for the worker (English / Roman Urdu / mixed requests) and the customer's approval of it.
+    description_ur = serializers.CharField(required=False, allow_blank=True, max_length=2000, trim_whitespace=True)
+    description_ur_approved = serializers.BooleanField(required=False)
+
+
+def apply_urdu_edit(job: JobRequest, old_description: str, data: dict) -> dict:
+    """After ``job.description`` was updated: invalidate an outdated Urdu version, then apply the customer's
+    edit/approval. Returns field errors; the caller saves nothing when there are any."""
+    urdu.description_changed(job, old_description)
+    return urdu.edit(job, text=data.get("description_ur"), approved=data.get("description_ur_approved"))
+
+
+URDU_FIELDS = ["description_ur", "description_ur_status", "description_ur_basis", "updated_at"]
 
 
 class SourceSerializer(StrictFieldsMixin, serializers.Serializer):
@@ -270,7 +285,13 @@ def prefill_from(job: JobRequest, interpretation: Interpretation) -> None:
     """Copy AI suggestions into EMPTY fields only; only active catalog entries that fit together."""
     fields = drafts.effective_fields(interpretation.draft, interpretation.corrections)
     state = state_of(job)
-    if not state.description and fields.get("description"):
+    translate = urdu.needs_urdu(job)
+    if translate:
+        # English / Roman Urdu / mixed: the customer's own words stay the description; the Urdu wording from the
+        # same AI call is offered separately for review and approval (never shared before that).
+        if not state.description and job.original_text:
+            state.description = job.original_text[: rules.MAX_DESCRIPTION]
+    elif not state.description and fields.get("description"):
         state.description = str(fields["description"])[: rules.MAX_DESCRIPTION]
     suggested = list(ServiceTag.objects.filter(code__in=fields.get("services") or [], is_active=True, trade__is_active=True))
     excluded = list(ServiceTag.objects.filter(code__in=fields.get("services_excluded") or [], is_active=True))
@@ -297,6 +318,9 @@ def prefill_from(job: JobRequest, interpretation: Interpretation) -> None:
     for name in rules.check(state, complete=False):
         setattr(state, name, rules.State().__dict__[name])
     apply_state(job, state)
+    if translate:
+        urdu.suggest(job, fields.get("description"))
+        job.save(update_fields=URDU_FIELDS)
 
 
 # --- Views ----------------------------------------------------------------------------------------------
@@ -365,6 +389,8 @@ class JobDetailView(APIView):
             if job.status != JobRequest.Status.DRAFT:
                 raise NotEditable()
             state = state_of(job)
+            urdu_data = {name: serializer.validated_data.pop(name) for name in ("description_ur", "description_ur_approved")
+                         if name in serializer.validated_data}
             for name, value in serializer.validated_data.items():
                 setattr(state, name, value)
             if "area" in serializer.validated_data and state.area and "city" not in serializer.validated_data:
@@ -373,8 +399,11 @@ class JobDetailView(APIView):
             for name in ("services", "services_excluded"):
                 setattr(state, name, list(dict.fromkeys(getattr(state, name))))
             errors = rules.check(state, complete=False)
+            old_description = job.description
+            job.description = state.description
+            errors.update(apply_urdu_edit(job, old_description, urdu_data))
             if errors:
-                _raise(errors)  # nothing saved: the previous draft stays as it was
+                _raise(errors)  # nothing saved (the transaction rolls back): the previous draft stays as it was
             apply_state(job, state)
         return Response(job_payload(own_jobs(request).get(pk=job.pk)))
 

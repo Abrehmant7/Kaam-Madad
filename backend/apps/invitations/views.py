@@ -26,7 +26,7 @@ from apps.core.api.exceptions import ApiError
 from apps.jobs import rules as job_rules
 from apps.jobs.models import JobRequest
 from apps.jobs.summary import matching_summary, privacy_warnings
-from apps.jobs.views import job_payload, own_jobs
+from apps.jobs.views import apply_urdu_edit, job_payload, own_jobs
 
 from apps.bookings.errors import InvitationBooked
 from apps.bookings.services import booking_for_invitation, booking_for_job
@@ -165,6 +165,9 @@ class SendSerializer(StrictFieldsMixin, serializers.Serializer):
 
 class DescriptionSerializer(StrictFieldsMixin, serializers.Serializer):
     description = serializers.CharField(max_length=job_rules.MAX_DESCRIPTION, trim_whitespace=True)
+    # The Urdu version for the worker and the customer's approval of it (see apps.jobs.urdu).
+    description_ur = serializers.CharField(required=False, allow_blank=True, max_length=2000, trim_whitespace=True)
+    description_ur_approved = serializers.BooleanField(required=False)
 
 
 def send_invitation(job_id, customer, worker_id) -> tuple[Invitation, bool]:
@@ -260,8 +263,9 @@ class WithdrawView(APIView):
 
 @method_decorator(never_cache, name="dispatch")
 class SharedDescriptionView(APIView):
-    """PATCH /jobs/{id}/shared-description/ {description} — before inviting, the customer may edit the
-    free-text description of a CONFIRMED request (e.g. to remove a phone number or address). Not while an
+    """PATCH /jobs/{id}/shared-description/ {description, description_ur?, description_ur_approved?} — before
+    inviting, the customer may edit the free-text description of a CONFIRMED request (e.g. to remove a phone number
+    or address) and its Urdu version. A changed description makes an earlier Urdu version outdated. Not while an
     invitation is active, so what a worker already received never changes underneath them."""
 
     permission_classes = [IsCustomer]
@@ -278,8 +282,14 @@ class SharedDescriptionView(APIView):
                 raise NotConfirmed()
             if job.invitations.filter(status=Invitation.Status.ACTIVE).exists():
                 raise InvitationActive()
+            old_description = job.description
             job.description = serializer.validated_data["description"]
-            job.save(update_fields=["description", "updated_at"])
+            errors = apply_urdu_edit(job, old_description, serializer.validated_data)
+            if errors:
+                raise ValidationError({name: [ErrorDetail(message, code=code) for code, message in items]
+                                       for name, items in errors.items()})
+            job.save(update_fields=["description", "description_ur", "description_ur_status", "description_ur_basis",
+                                    "updated_at"])
         payload = job_payload(own_jobs(request).get(pk=job.pk))
         return Response({**payload, "privacy_warnings": privacy_warnings(job.description)})
 

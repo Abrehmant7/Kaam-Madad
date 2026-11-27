@@ -4,16 +4,21 @@
     python manage.py check_ai_providers --only text_to_speech --save-speech speech.mp3
     python manage.py check_ai_providers --only cnic_ocr --cnic-image ../docs/demo/cnic/demo-card-bilal-ahmed.png
     python manage.py check_ai_providers --only agreement_check
+    python manage.py check_ai_providers --only interpretation
 
-- Speech-to-text runs only with --audio (any supported format, ≤ 60 s, ≤ 10 MB).
-- Interpretation uses the transcript (or a built-in fictional Urdu sample).
+- Speech-to-text runs only with --audio (any supported format, ≤ 60 s, ≤ 10 MB) through the configured
+  provider (ElevenLabs Scribe for the pitch configuration).
+- Interpretation runs four fictional samples: a worker introduction (the transcript, or a built-in Urdu sample),
+  the pitch's ENGLISH job request (expects electrician / ceiling fan installation / G-9, AC service excluded, and
+  an Urdu description), and the two worker signup screens answered by voice (work; areas with a negation).
 - Text-to-speech reads --speak (default: a fictional Urdu sentence with English trade terms),
   checks that real audio came back, and with --save-speech writes it to a file to listen to.
 - CNIC OCR runs the configured OCR provider (Tesseract on this host) on each --cnic-image and prints
   the extracted name and the MASKED number. Use the synthetic DEMO cards in docs/demo/cnic/.
-- Agreement check runs the configured checker on a built-in fictional request, two messages and a
-  quote that disagree about materials (labour-only quote, request says materials included), and prints
-  the findings with their verified source statements. A correct checker reports materials_responsibility.
+- Agreement check runs the configured checker on fictional scenarios and prints each finding with its verified
+  source statements: the Urdu M7 sample and the pitch example (Rs. 1,200 "including materials" vs a labour-only
+  quote → exactly one materials finding; revised to labour + materials → no findings), the same in Roman Urdu,
+  and a case with a separate timing disagreement that must stay a second finding.
 Each step reports OK, or the error code and reason (not configured / limit / unavailable / invalid output).
 Use fictional speech and text only — never real CNIC numbers or personal details.
 """
@@ -34,6 +39,29 @@ from apps.voice.audio import inspect_audio
 SAMPLE_TEXT = "میرا نام احمد ہے۔ میں الیکٹریشن ہوں۔ میں پنکھے لگاتا ہوں لیکن motor rewinding نہیں کرتا۔"
 SPEECH_SAMPLE = "احمد صاحب کل شام G-9 میں دو پنکھے لگائیں گے۔ AC کی service نہیں ہو گی۔"
 STEPS = ("speech_to_text", "interpretation", "text_to_speech", "cnic_ocr", "agreement_check")
+JOB_SAMPLE_EN = "Please install two ceiling fans at my house in G-9 tomorrow evening. No AC service needed."
+WORK_SAMPLE_UR = "میں الیکٹریشن ہوں۔ میں پنکھے لگاتا ہوں اور wiring ٹھیک کرتا ہوں۔ میرا خاص کام پنکھے لگانا ہے۔ UPS کا کام نہیں کرتا۔"
+AREAS_SAMPLE_UR = "میں اسلام آباد میں G-9 اور G-10 میں کام کرتا ہوں۔ F-8 نہیں جاتا۔"
+_PITCH_REQUEST = {
+    "description": "Please install two ceiling fans in G-9 tomorrow evening. My budget is Rs. 1,200 including materials.",
+    "trade": "electrician", "services": ["elec_fan_install"], "services_excluded": [], "area": "isb-g-9",
+    "window_start": "2030-01-10T17:00+05:00", "window_end": "2030-01-10T19:00+05:00", "budget_preference_pkr": "1200.00",
+}
+_PITCH_QUOTE = {
+    "version": 1, "inspection_only": False, "scope": "Install two ceiling fans", "quantity": 2,
+    "labour_amount_pkr": "1200.00", "labour_basis": "total", "materials": "customer", "materials_amount_pkr": None,
+    "visit_fee_pkr": None, "visit_fee_treatment": "none", "exclusions": "",
+    "start_at": "2030-01-10T17:00+05:00", "end_at": "2030-01-10T19:00+05:00",
+}
+_PITCH_MESSAGES = [
+    {"id": "m1", "role": "customer", "text": "Can you come tomorrow at 5 pm?"},
+    {"id": "m2", "role": "worker", "text": "Yes. Rs. 1,200 is for labour only. You will buy the fans and wiring yourself."},
+]
+_ROMAN_REQUEST = {**_PITCH_REQUEST, "description": "G-9 mein do ceiling fan lagwane hain. 1200 rupay saman samet."}
+_ROMAN_MESSAGES = [
+    {"id": "m1", "role": "customer", "text": "Kya aap kal shaam 5 baje aa sakte hain?"},
+    {"id": "m2", "role": "worker", "text": "Ji, 1200 sirf mazdoori hai. Saman aap khud le kar rakhein."},
+]
 # Fictional M7 sample: the request includes materials, the worker's message and quote say labour only.
 AGREEMENT_SAMPLE = {
     "request": {"description": "دو چھت کے پنکھے لگانے ہیں۔ میرا بجٹ 3500 روپے ہے، سامان سمیت۔", "trade": "electrician",
@@ -48,6 +76,29 @@ AGREEMENT_SAMPLE = {
               "visit_fee_pkr": None, "visit_fee_treatment": "none", "exclusions": "",
               "start_at": "2030-01-10T17:00+05:00", "end_at": "2030-01-10T19:00+05:00"},
 }
+# (label, sample, expected finding codes — order-insensitive)
+AGREEMENT_SCENARIOS = [
+    ("urdu_m7_sample", AGREEMENT_SAMPLE, ["materials_responsibility"]),
+    ("pitch_v1_labour_only", {"request": _PITCH_REQUEST, "messages": _PITCH_MESSAGES, "quote": _PITCH_QUOTE},
+     ["materials_responsibility"]),
+    ("pitch_v2_materials_included", {
+        "request": _PITCH_REQUEST,
+        "messages": _PITCH_MESSAGES + [{"id": "m3", "role": "worker", "text": "OK, I will bring the fans and wiring. Rs. 1,200 including materials."}],
+        "quote": {**_PITCH_QUOTE, "version": 2, "materials": "included"},
+    }, []),
+    ("roman_urdu_labour_only", {"request": _ROMAN_REQUEST, "messages": _ROMAN_MESSAGES, "quote": _PITCH_QUOTE},
+     ["materials_responsibility"]),
+    ("separate_timing_disagreement", {
+        "request": _PITCH_REQUEST,
+        "messages": [{"id": "m1", "role": "customer", "text": "Please come at 5 pm, I am not home in the morning."},
+                     _PITCH_MESSAGES[1]],
+        "quote": {**_PITCH_QUOTE, "start_at": "2030-01-10T10:00+05:00", "end_at": "2030-01-10T12:00+05:00"},
+    }, ["materials_responsibility", "timing_mismatch"]),
+]
+
+
+def _urdu(text) -> bool:
+    return isinstance(text, str) and any("\u0600" <= ch <= "\u06ff" for ch in text)
 
 
 class Command(BaseCommand):
@@ -87,21 +138,32 @@ class Command(BaseCommand):
     def check_agreement(self) -> None:
         import time
 
-        started = time.monotonic()
         try:
-            result = registry.agreement_checker().check(**AGREEMENT_SAMPLE)
+            checker = registry.agreement_checker()
         except ProviderError as exc:
             self.report("agreement_check", False, f"{settings.AGREEMENT_CHECK_PROVIDER}: {exc.code} ({exc.reason})")
             return
-        codes = [finding["code"] for finding in result.findings]
-        self.report(
-            "agreement_check", "materials_responsibility" in codes,
-            f"{result.provider}/{result.model} simulated={result.simulated} findings={codes} {time.monotonic() - started:.1f}s",
-        )
-        for finding in result.findings:
-            self.stdout.write(f"    - {finding['code']} ask={finding['ask']} question={finding['question'][:160]!r}")
-            for source in finding["sources"]:
-                self.stdout.write(f"        source {source['kind']}/{source['ref']}: {source['text'][:120]!r}")
+        for label, sample, expected in AGREEMENT_SCENARIOS:
+            if checker.simulated and "timing_mismatch" in expected:
+                self.stdout.write(f"[SKIP] agreement_check[{label}]: the simulated checker covers materials only "
+                                  "(in the app, a quote outside the requested time is flagged by the time rule).")
+                continue
+            started = time.monotonic()
+            try:
+                result = checker.check(**sample)
+            except ProviderError as exc:
+                self.report(f"agreement_check[{label}]", False, f"{checker.name}: {exc.code} ({exc.reason})")
+                continue
+            codes = [finding["code"] for finding in result.findings]
+            self.report(
+                f"agreement_check[{label}]", sorted(codes) == sorted(expected),
+                f"{result.provider}/{result.model} simulated={result.simulated} findings={codes} expected={expected} "
+                f"{time.monotonic() - started:.1f}s",
+            )
+            for finding in result.findings:
+                self.stdout.write(f"    - {finding['code']} ask={finding['ask']} question={finding['question'][:160]!r}")
+                for source in finding["sources"]:
+                    self.stdout.write(f"        source {source['kind']}/{source['ref']}: {source['text'][:120]!r}")
 
     def check_cnic_ocr(self, images) -> None:
         import time
@@ -161,25 +223,36 @@ class Command(BaseCommand):
         return result.text
 
     def check_interpretation(self, text: str) -> None:
-        try:
-            provider = registry.interpretation()
-            result = provider.interpret(
-                kind="worker_introduction", text=text, language="mixed",
-                catalog=drafts.catalog_context("worker_introduction"),
+        import time
+
+        samples = [
+            ("worker_introduction", text, "mixed", None),
+            ("job_description", JOB_SAMPLE_EN, "en",
+             lambda f: f["trade"] == "electrician" and "elec_fan_install" in f["services"] and f["area"] == "isb-g-9"
+             and "ac_service_cleaning" not in f["services"] and _urdu(f["description"])),
+            ("onboarding_work", WORK_SAMPLE_UR, "mixed",
+             lambda f: f["trade"] == "electrician" and "elec_fan_install" in f["services_offered"]
+             and "elec_ups_inverter" not in f["services_offered"]),
+            ("onboarding_areas", AREAS_SAMPLE_UR, "mixed",
+             lambda f: f["city"] == "islamabad" and {"isb-g-9", "isb-g-10"} <= set(f["service_areas"])
+             and "isb-f-8" not in f["service_areas"]),
+        ]
+        catalog = drafts.CatalogIndex.load()
+        for kind, sample, language, expectation in samples:
+            started = time.monotonic()
+            try:
+                provider = registry.interpretation()
+                result = provider.interpret(kind=kind, text=sample, language=language, catalog=drafts.catalog_context(kind))
+                draft = drafts.build_draft(kind, drafts.validate_raw(kind, result.raw), sample, catalog)
+            except ProviderError as exc:
+                self.report(f"interpretation[{kind}]", False, f"{settings.INTERPRETATION_PROVIDER}: {exc.code} ({exc.reason})")
+                continue
+            ok = expectation(draft["fields"]) if expectation else True
+            self.report(
+                f"interpretation[{kind}]", ok,
+                f"{result.provider}/{result.model} simulated={result.simulated} fields={draft['fields']} "
+                f"unmatched={draft['unmatched_mentions']} uncertain={draft['uncertain']} {time.monotonic() - started:.1f}s",
             )
-            draft = drafts.build_draft(
-                "worker_introduction", drafts.validate_raw("worker_introduction", result.raw), text,
-                drafts.CatalogIndex.load(),
-            )
-        except ProviderError as exc:
-            self.report("interpretation", False, f"{settings.INTERPRETATION_PROVIDER}: {exc.code} ({exc.reason})")
-            return
-        self.report(
-            "interpretation",
-            True,
-            f"{result.provider}/{result.model} simulated={result.simulated} fields={draft['fields']} "
-            f"unmatched={draft['unmatched_mentions']} missing={draft['missing']}",
-        )
 
     def check_text_to_speech(self, text: str, language: str, save_to: str | None) -> None:
         try:

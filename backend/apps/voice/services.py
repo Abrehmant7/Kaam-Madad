@@ -25,8 +25,9 @@ logger = logging.getLogger(__name__)
 
 def transcribe(clip: AudioClip, language_hint: str) -> tuple[Transcription, bool]:
     provider = registry.speech_to_text()
+    models = [provider.model, *getattr(provider, "alternate_models", ())]  # e.g. Scribe's Urdu-script fallback
     existing = Transcription.objects.filter(
-        clip=clip, provider=provider.name, model=provider.model, language_hint=language_hint
+        clip=clip, provider=provider.name, model__in=models, language_hint=language_hint
     ).first()
     if existing:
         return existing, True

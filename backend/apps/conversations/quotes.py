@@ -181,6 +181,8 @@ def check_inputs(quote: Quote) -> tuple[dict, list[dict], dict]:
     request = {key: shared[key] for key in ("description", "trade", "services", "services_excluded", "area",
                                               "window_start", "window_end", "budget_preference_pkr")}
     request["window_start"], request["window_end"] = _karachi(shared["window_start"]), _karachi(shared["window_end"])
+    if shared.get("description_ur"):  # the customer-approved Urdu version the worker read (older snapshots lack it)
+        request["description_ur"] = shared["description_ur"]
     messages = [
         {"id": str(m.id), "role": m.sender_role, "text": m.text}
         for m in Message.objects.filter(invitation=quote.invitation).order_by("created_at")
@@ -251,7 +253,12 @@ def store_check_result(quote_id, attempt, *, result=None, failure: str | None = 
             logger.warning("Agreement check unavailable (%s).", failure.split(":")[0])
         else:
             GapFinding.objects.filter(quote=quote, source=GapFinding.Source.AI, status=GapFinding.Status.OPEN).delete()
+            # One clarification per point: the deterministic time rule already asks about a quote outside the
+            # requested window, so an AI timing finding for the same version would ask the same question twice.
+            rule_timing = quote.findings.filter(source=GapFinding.Source.RULE, code="timing_differs").exists()
             for finding in result.findings:
+                if rule_timing and finding["code"] == "timing_mismatch":
+                    continue
                 GapFinding.objects.create(quote=quote, source=GapFinding.Source.AI, code=finding["code"], blocking=True,
                                           question=finding["question"], ask=finding["ask"], sources=finding["sources"])
             quote.check_status = Quote.CheckStatus.FINDINGS if result.findings else Quote.CheckStatus.PASSED

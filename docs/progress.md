@@ -20,9 +20,151 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M8 Booking and arrival | ✅ Complete (27 Nov 2026) — two-session walk-through with fixture AI; PostgreSQL concurrency tests |
 | M9 Completion and feedback | ✅ Complete (27 Nov 2026) — Urdu two-session walk-through with fixture AI; PostgreSQL race tests |
 | M10 Reporting and moderation | ✅ Complete (27 Nov 2026) — Urdu report through staff resolution; separate customer, worker and staff sessions |
+| Pitch improvements (ElevenLabs + Groq, voice signup, demo verification, Urdu descriptions) | ✅ Implemented (27 Nov 2026). Groq not live-checked yet (no key); Scribe Urdu needs the `scribe_v2` fallback |
 | M11 Integration and delivery | ⬜ Next |
 
 ---
+
+## Pitch improvements — implemented (27 Nov 2026)
+
+These changes prepare the event demo. They do not replace M11. Setup and rehearsal are in the
+[README](../README.md#pitch-configuration-and-rehearsal-hackathon).
+
+### Delivered
+
+1. **Providers**
+   - Speech-to-text: ElevenLabs Scribe (`scribe_v3`) for recorded or uploaded clips. It reuses `ELEVENLABS_API_KEY`
+     and the existing upload checks and permissions. Report and dispute audio stays outside the pipeline.
+   - Text AI: Groq (`openai/gpt-oss-120b`, configurable) for interpretation and the agreement check.
+     - Groq is asked for strict JSON Schema output (all properties required, `additionalProperties: false`).
+     - The output is still validated by `apps.voice.drafts` and `verify_findings`.
+     - Groq errors map onto the existing error types: 429 and 498 are usage limits, timeouts and 5xx are retried
+       within the bounded budget, and a truncated or non-JSON answer is invalid output.
+   - Wired into settings, `providers/registry.py`, `.env.example`, `GET /config/` and `check_ai_providers`.
+     Gemini stays selectable.
+2. **Worker signup in three steps**
+   - Screens 2 and 3 offer **Answer by voice**: Scribe transcribes, then Groq suggests catalog choices for that
+     screen only (new interpretation kinds `onboarding_work` and `onboarding_areas`).
+   - Negation is respected, and ambiguous choices are left unselected: a main speciality that isn't clear or isn't
+     offered, areas in two cities, or the same thing said both ways.
+   - Suggestions fill the normal editable tiles; nothing is saved until the worker saves. Manual selection keeps
+     working when voice or AI fails.
+   - Screen 3 has **Listen to my choices**, built from the actual selections and localized catalog labels.
+3. **Demo verification**
+   - `POST /api/v1/identity/demo-verification/` takes a sample CNIC and a sample selfie. They are validated with
+     the existing image limits, then the existing `demo_approved` status is recorded with the new method
+     `demo_sample_upload`.
+   - No OCR, extraction, face matching or registry lookup. Nothing is retained (metadata only) and nothing is sent
+     to a provider.
+   - Refused outside demo mode (403 `demo_verification_unavailable`). Existing records are kept: an already
+     approved worker gets 409, and a suspension is not bypassed.
+   - Fictional samples: `frontend/public/demo-samples/` (the demo card, plus an illustrated selfie labelled "not a
+     real person").
+   - `/worker/verify` is now the two-upload screen; the M4 scan is at `/worker/verify/card`. After screen 3 the
+     worker is offered verification and can choose "Do this later".
+4. **English requests for an Urdu-speaking worker**
+   - The customer's own words now stay the description for typed and spoken English, Roman Urdu or mixed input.
+     This fixes the typed-English prefill in `jobs/views.py`.
+   - The same interpretation call's faithful Urdu wording is stored as a *suggested* `description_ur`. The customer
+     reviews, edits and approves it on the details screen, or before inviting.
+   - Only an approved version that matches the current description is shared
+     (`matching_summary.description_ur`, plus `description_language`).
+   - Changing the description marks a pending or approved Urdu version **outdated**.
+   - The worker's Urdu view shows the approved Urdu description first and the original marked with its language.
+     Read-aloud includes the approved Urdu description with the services, area, date and time.
+   - Without interpretation, manual submission still works: the worker sees the localized structured details and
+     the original notes marked as English.
+5. **Agreement check through Groq** in the real quote workflow. It uses the current findings format, verified
+   sources, authorized inputs (now also the approved Urdu description) and the quote-version checks.
+   - The instruction includes the merge rule verbatim. Same-code findings are also merged in code.
+   - The question follows the conversation language (Urdu script, Roman Urdu or English).
+   - Later statements and the quote supersede earlier ones.
+   - An ungrounded answer (findings that can't be traced to the input) is refused as `findings_ungrounded`, shown
+     as "could not run".
+   - An AI timing finding is not repeated when the deterministic time rule already asks.
+   - The fixture's materials rule now treats a quote that includes the materials the customer asked for as
+     settled.
+6. **Ranking unchanged:** the AI only suggests the request's tags, the customer confirms them, and the existing
+   matcher ranks.
+
+### Checks (27 Nov 2026)
+
+| Check | Result |
+|---|---|
+| Backend `check`, `makemigrations --check` | ✅ No issues; migrations `jobs 0002`, `voice 0006`, `workers 0002` added |
+| Backend suite (real PostgreSQL, fixtures and mocked HTTP) | ✅ **407 tests** OK (54 new for the pitch; 3 existing assertions updated for the new summary keys and command output) |
+| Frontend typecheck / tests / build | ✅ No errors / **107 passed** (8 new) / built (existing chunk-size warning) |
+| Pitch example through the real quote workflow | ✅ Fixture and mocked Groq: Rs. 1,200 "including materials" vs labour only → exactly one materials finding; revision with materials included → no findings and ready; Roman Urdu → one finding with a Roman Urdu question; timing outside the request → a second, separate finding |
+| Failure never shown as a clean check | ✅ Groq 429, timeout, ungrounded and truncated answers → "could not run" with no AI findings; manual review still works; a late result for a superseded version is discarded |
+| Demo verification | ✅ Sample images approved in demo mode without OCR or registry; refused in live mode; approval does not count in live mode; existing approval and suspension kept |
+| Manual paths | ✅ Onboarding saves with STT and AI unconfigured; English request completed and shared without interpretation |
+| Ranking | ✅ AI-suggested G-9 ceiling fan request: fan specialist `03009990101` first, paused `03009990104` excluded, same order on repeat |
+
+### Live provider checks (this machine, fictional data; separate from the fixture tests above)
+
+| Provider | How | Result |
+|---|---|---|
+| ElevenLabs `eleven_v3` read-aloud | `check_ai_providers --only text_to_speech` (Urdu with English terms, then English) | ✅ MP3 returned for both (`simulated=False`) |
+| ElevenLabs Scribe `scribe_v3`, English | Transcribed the English clip above, with the `en` and `auto` hints | ✅ "Please install two ceiling fans in G9 tomorrow evening. No AC service needed." (about 5 s); negation kept, "G-9" written as "G9" |
+| ElevenLabs Scribe `scribe_v3`, Urdu | Transcribed the Urdu clip, with `language_code` `ur`, `urd`, auto, and `urd` + secondary English | ❌ Every variant returned **Devanagari** (Hindi script), with the words and English terms correct. The adapter refused it as `transcript_wrong_script` |
+| ElevenLabs Scribe `scribe_v2` and `scribe_v1`, Urdu | Same clip | `scribe_v2` + `ur` ✅ Urdu script ("میں electrician ہوں۔ … لیکن UPS کا کام نہیں کرتا۔", one small word error: لگتا for لگاتا). `scribe_v1` ❌ Devanagari. With auto-detect, all three returned Devanagari |
+| Scribe adapter with the Urdu fallback | `check_ai_providers --only speech_to_text --language ur` | ✅ `elevenlabs/scribe_v2` Urdu script, `language=mixed`, 7.4 s in total (v3 call + fallback) |
+| Groq (interpretation, agreement check) | `check_ai_providers` with `INTERPRETATION_PROVIDER=groq AGREEMENT_CHECK_PROVIDER=groq` | ⏳ Not run live: no `GROQ_API_KEY` in `.env` (`ai_provider_not_configured (missing_api_key)`) |
+| Gemini interpretation (still selectable; `.env` default) | `check_ai_providers --only interpretation` | ✅ Worker introduction, signup work (UPS negated, main = fans) and areas (G-9, G-10; F-8 excluded) on `gemini-3.6-flash`, 5–8 s each. ❌ English job description: timeout twice (20 s), as seen before with this model |
+
+### Rehearsal (API, real Django stack, dev database, fictional accounts)
+
+A scripted rehearsal ran in-process through the real views on the dev database:
+- Live ElevenLabs for speech-to-text and read-aloud. Fixture interpretation and agreement check (no Groq key).
+- No browser was available, so screens were exercised by the frontend tests instead.
+
+All 18 steps passed:
+
+1. Worker signup (screen 1).
+2. Voice answer on screen 2: the live Scribe transcript came from `scribe_v2` after the v3 Devanagari result, in 3.0 s.
+   The fixture's suggestions kept UPS as "not offered".
+   - It missed fan installation because Scribe heard "لگتا" for "لگاتا". The worker added it on screen, as the UI
+     allows.
+3. Screens 2 and 3 saved.
+4. Live Urdu "Listen to my choices".
+5. Demo verification with the sample images. The worker can then take jobs.
+6. Customer signup (one screen).
+7. Spoken English request: live Scribe v3 transcript kept as the description, with an Urdu version suggested.
+8. Typed English request: description kept; catalog tags and an Urdu version suggested.
+9. The customer approves the Urdu description and confirms the request.
+10. Ranking: the same order twice and the paused worker excluded.
+    - The dev database also has three earlier fictional G-9 fan specialists. They tie with `03009990101`, which is
+      third here.
+    - The seeded-only case (specialist first) is covered by the automated test.
+    - For the pitch, use a database with only the seeded demo workers, or expect those extra fictional workers.
+11. The worker sees the approved Urdu description, with the original marked English and no address.
+12. Live Urdu read-aloud, 354 KB. A repeat was served from the per-owner cache in 0.4 s.
+13. Quote v1, labour only: exactly one materials finding.
+14. Clarification recorded, then the revised quote: no findings, ready for acceptance.
+
+The invitation was withdrawn afterwards. The fictional rehearsal accounts remain in the dev database.
+
+### Still needs a live check
+
+- **Groq:** run `check_ai_providers --only interpretation` and `--only agreement_check` with a `GROQ_API_KEY`.
+  This covers the English → Urdu description quality, the onboarding suggestions, and the four agreement scenarios
+  (exactly one materials finding, none after revision, Roman Urdu, materials + timing).
+- **Rehearsal:** the browser rehearsal in the README with the live providers, on real phones (microphone and
+  camera).
+- **Scribe on real Urdu voices:** the fallback was verified on one synthetic Urdu clip. Real speakers and accents,
+  and whether a future `scribe_v3` update writes Urdu script, still need checking.
+- **Speed:** the agreement check still runs inside the request. Groq's speed was not measured live.
+
+### Known limitations
+
+- **Simulated Urdu:** the fixture's "Urdu description" is assembled from catalog labels. It is not a translation and
+  is labelled simulated.
+- **One clarification:** the Urdu description is one free-text field. Conversation messages are still not
+  translated.
+- **Dead links:** the old M4 OCR page stays available, but nothing links to it.
+
+---
+
 
 ## M10 Misconduct reporting and moderation — complete (27 Nov 2026)
 

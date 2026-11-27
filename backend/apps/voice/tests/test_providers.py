@@ -365,5 +365,5 @@ class TestIsolationTests(SimpleTestCase):
         self.assertEqual(settings.DEPLOYMENT_MODE, "demo")
         for name in ("SPEECH_TO_TEXT_PROVIDER", "INTERPRETATION_PROVIDER", "TEXT_TO_SPEECH_PROVIDER"):
             self.assertEqual(getattr(settings, name), "fixture", name)
-        for name in ("GEMINI_API_KEY", "AZURE_SPEECH_KEY", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"):
+        for name in ("GEMINI_API_KEY", "AZURE_SPEECH_KEY", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "GROQ_API_KEY"):
             self.assertEqual(getattr(settings, name), "", name)

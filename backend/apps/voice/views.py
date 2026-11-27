@@ -162,8 +162,10 @@ class TranscribeSerializer(StrictFieldsMixin, serializers.Serializer):
 
 
 class InterpretSerializer(StrictFieldsMixin, serializers.Serializer):
-    # Voice notes (purpose "message") are never interpreted as drafts; only these two kinds are.
-    kind = serializers.ChoiceField(choices=[Purpose.WORKER_INTRODUCTION, Purpose.JOB_DESCRIPTION])
+    # Voice notes (purpose "message"), reviews and reports are never interpreted as drafts; only these kinds are.
+    kind = serializers.ChoiceField(choices=[
+        Purpose.WORKER_INTRODUCTION, Purpose.JOB_DESCRIPTION, Purpose.ONBOARDING_WORK, Purpose.ONBOARDING_AREAS,
+    ])
     language = serializers.ChoiceField(choices=["ur", "en", "mixed", "unknown"], default="ur")
     transcription_id = serializers.UUIDField(required=False)
     text = serializers.CharField(required=False, trim_whitespace=True)
