@@ -49,7 +49,7 @@ WebSockets (polling is the MVP update mechanism).
 ├── docker-compose.yml      Local PostgreSQL only (host port 5434 by default)
 ├── docs/                   requirements.md, architecture.md, progress.md
 ├── backend/
-│   ├── manage.py           Defaults to config.settings.development
+│   ├── manage.py           Defaults to config.settings.development ("test" → config.settings.test)
 │   ├── requirements.in/.txt
 │   ├── config/
 │   │   ├── env.py          Typed env-var helpers (no values echoed in errors)
@@ -597,3 +597,114 @@ API contracts: [api.md § Recommendations and invitations](api.md#recommendation
 An active `Invitation` (stable UUID) ties one confirmed job to one worker. M7 should hang the private
 conversation and quotations off `Invitation.id`. It should close sending when the invitation is declined or
 withdrawn (JOB-06), and re-check `worker_eligibility` before anything that commits either party.
+
+## 13. Module M7 — private conversation, quotations and agreement gaps
+
+API contracts: [api.md § Conversations, quotes and agreement gaps](api.md#conversations-quotes-and-agreement-gaps-m7).
+
+### Conversation (`apps/conversations`)
+
+- **Keyed by `Invitation.id`.** `participation()` returns `(invitation, role)` only for the job owner or the
+  invited worker; everyone else gets `404`.
+  - Writes call `require_active()` (`409 conversation_closed`) inside the transaction, after the invitation row
+    is locked.
+  - Reads work in every status, so history survives a decline or withdrawal (JOB-06).
+- **`Message`:**
+  - Fields: `invitation`, `sender`, `sender_role`, `client_id`, `kind` (`text`/`voice`), `text`,
+    `caption_status`, `interpreted_text`, `audio_clip`, `transcription`, `created_at`.
+  - Messages are immutable, and there is no edit or delete endpoint.
+  - Constraints:
+    - `msg_client_id_once (invitation, sender, client_id)` makes a retried send return the stored message
+      (`200`). An `IntegrityError` backstop covers two concurrent retries.
+    - `msg_clip_once` means a clip belongs to one message.
+    - `msg_kind_consistent` means a text message has no clip and a voice message has one.
+- **Voice notes (MSG-01, MSG-03):**
+  - The clip uses M3's private audio store with its own purpose `message`, and stays owner-only until sent.
+  - M3's transcription proposes a caption. The **sender** reviews or edits it, and only the approved `text`
+    goes to the other side.
+  - The proposal (`interpreted_text`) is kept for the sender and audit, separate from the original audio and
+    the approved caption.
+  - With no caption, `caption_status="unavailable"` and both sides see "Caption unavailable".
+  - Playback (`…/messages/{id}/audio/`) is checked through `participation()` and sent with
+    `Cache-Control: private, no-store`.
+- **Pagination and polling:** pages of 30, newest first, plus the `after`/`before` cursors. The client polls
+  `after=<last id>` every 5 s, appends only, and never resets the composer.
+- **Job context:** the header returns `shared_view(invitation.shared_summary)`, the same text the worker was
+  shown in M6. Only the customer also gets `job_id`, for the link back. M5's owner-only job, photo and draft
+  endpoints are unchanged.
+
+### Quotations
+
+- **`Quote`:**
+  - Fields: version, status `draft`/`submitted`/`superseded`, `inspection_only`, `scope`, `quantity`,
+    `labour_amount` with `labour_basis` `total`/`per_item`, `materials` (`included`/`worker_extra`/`customer`/
+    `none`), `materials_amount`, `visit_fee` with `visit_fee_treatment`, `exclusions`, `start_at`/`end_at`,
+    frozen `totals`, `submitted_at`, `superseded_at`, `expires_at`, and the check result fields.
+  - Money is `DecimalField(10, 2)`. `compute_totals()` uses `Decimal` only. Unknown amounts stay `None` and are
+    listed in `totals.unknown`; `known_total` never pretends they are zero.
+- **Database constraints:**
+  - `quote_version_once`, `quote_one_draft`, `quote_one_current` (one `submitted` per invitation);
+  - `quote_submitted_is_frozen_shape`, `quote_end_after_start` (non-drafts);
+  - `quote_amounts_not_negative`.
+- **Validation (`quotes.validate`)** is deterministic and runs on every draft save (shown as `issues`) and on
+  submit (`400`). It covers required fields per kind, inspection-only rules, amount ranges, per-item quantity,
+  materials-amount applicability, visit-fee treatment and the time window.
+- **Versions (QT-02):** `submit_draft()` turns the single draft into version *n+1* and marks the previous one
+  `superseded` (with `superseded_at`). Earlier versions and their findings stay readable.
+- **Expiry (QT-03):** `expires_at = min(submitted_at + QUOTE_VALIDITY_HOURS, start_at)`. An expired version is
+  never ready.
+- **Locking order (shared with M6):** submit takes `JobRequest` → `Invitation` → draft, all
+  `SELECT … FOR UPDATE`. It checks `status == active` again **after** the locks, so a quote cannot be submitted
+  after a decline or withdrawal. M6 locks the same rows in the same order (the job on send, the invitation on
+  withdraw or decline), so there is no deadlock cycle.
+  - PostgreSQL thread tests (`ConcurrencyTests`): five submit-vs-withdraw races never leave a version with
+    `submitted_at > closed_at`, and a double submit gives exactly one version.
+
+### Agreement-gap detection (GAP-01, GAP-02)
+
+- **Two layers, both stored as `GapFinding` rows on the quote version:**
+  1. **Rules (`quotes.rule_findings`):**
+     - `timing_differs`: blocking, the customer answers; the proposed time is outside the requested window.
+     - `materials_amount_unknown`: a note.
+  2. **The checker (`apps/providers/agreement.py`, chosen by `AGREEMENT_CHECK_PROVIDER`):**
+     - `GeminiAgreementChecker`: Interactions API, JSON schema, `store: false`, budget
+       `GEMINI_AGREEMENT_MAX_TOKENS`.
+     - `FixtureAgreementChecker`: labelled keyword rules for the demo's labour-vs-materials case only.
+     - `UnconfiguredAgreementChecker`.
+- **Minimum data:** `check_inputs()` sends:
+  - the shared summary subset (description, trade, services, area, window, budget preference);
+  - the approved texts of the last 40 messages;
+  - the structured terms.
+
+  All times are in one Asia/Karachi format, so equal instants are not reported as a conflict (a live false
+  positive before this change). Nothing private is sent: no address, access notes, photos, audio, identity or
+  phone. A test asserts this.
+- **Grounding:** `verify_findings()` keeps only sources whose quoted text really appears in the input under the
+  stated `kind`/`ref`, and drops findings left without sources. The UI shows those statements word for word
+  (GAP-02).
+- **Failure is never a pass:**
+  - `run_ai_check()` runs outside the submit transaction and catches provider errors **and** unexpected
+    exceptions. The result is `check_status="unavailable"` with a failure code.
+  - Readiness then blocks with `automated_check_unavailable` until the check is re-run successfully, or until
+    the **customer** records a manual review. That review is stored as `manual_review_by/at`, not as a pass.
+- **Resolution:** `clarified` or `not_a_conflict`, with a required note. Who, which role and when are stored on
+  the finding of that version. A changed price or terms means a new version, which is checked again. Old
+  versions keep their findings.
+
+### M8 hand-off
+
+`quotes.readiness(invitation, quote=None)`, also exposed as `GET /conversations/{id}/readiness/`, returns
+`{invitation_id, quote_id, version, expires_at, ready, blocking[], warnings[]}`.
+- Ready requires all of these:
+  - an active invitation;
+  - a current, unexpired submitted version;
+  - no open blocking findings;
+  - a check that ran (or the customer's manual review after it could not run);
+  - `worker_eligibility(...).can_take_jobs`.
+- M7 stops at "Ready for customer acceptance".
+- **M8 should:**
+  - lock `JobRequest` → `Invitation` → `Quote` in that order;
+  - call `readiness()` again inside the transaction;
+  - accept exactly the `quote_id`/`version` the customer saw.
+
+  M8 owns acceptance, booking, time reservation and arrival codes.

@@ -10,10 +10,11 @@ using Urdu text, spoken instructions, recognisable icons and guided choices.
 
 Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 
-> **Status: Modules M1–M6 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
-> onboarding and identity check; customer job requests; recommendations and invitations). Customers describe a
-> job, confirm it, see matching workers with reasons, and invite one; the worker sees the invitation and can
-> decline. Chat, quotations, bookings and reviews are **not** implemented yet.
+> **Status: Modules M1–M7 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
+> onboarding and identity check; customer job requests; recommendations and invitations; private conversations
+> and quotations). Customers describe a job and invite a matching worker. The two talk privately by text or voice
+> note, and the worker sends a structured quote. Contradictions are flagged for clarification until the quote is
+> ready for the customer to accept. Acceptance, bookings and reviews are **not** implemented yet.
 > See [docs/progress.md](docs/progress.md).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
@@ -185,10 +186,11 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 | SMS / OTP delivery | **Not integrated.** Demo mode simulates codes (no SMS). With `PHONE_VERIFICATION_PROVIDER=unconfigured` the app honestly says SMS confirmation is unavailable. Live mode refuses to start with the demo provider. |
 | CNIC OCR | **Implemented** (M4): local Tesseract on the backend host (no external service). Reads the printed English name and number. |
 | NADRA / identity verification | **Not integrated** (needs authorised access). Demo deployments use a **simulated** fictional registry; demo approvals never count in live mode. |
-| Speech-to-text, interpretation, text-to-speech | **Implemented** (M3): Gemini (speech-to-text, interpretation); Azure AI Speech or ElevenLabs `eleven_v3` (Urdu read-aloud, selectable). Need keys in `.env`; without them development uses labelled fixtures and production reports "not configured". Not yet verified with live keys — see [Live check](#live-check-with-real-providers). |
+| Speech-to-text, interpretation, text-to-speech | **Implemented** (M3): Gemini (speech-to-text, interpretation); Azure AI Speech or ElevenLabs `eleven_v3` (Urdu read-aloud, selectable). Need keys in `.env`; without them development uses labelled fixtures and production reports "not configured". Live results on this machine are recorded in `docs/progress.md` — see [Live check](#live-check-with-real-providers). |
 | Customer job requests | **Implemented** (M5): voice/text description, review, confirmation, private photos |
 | Recommendations and invitations | **Implemented** (M6): rule-based matching with reasons, one active invitation per request |
-| Chat, quotations, bookings, reviews, reports | Not implemented (M7–M10) |
+| Conversations, quotations, agreement check | **Implemented** (M7): private text and voice-note messages, structured versioned quotes, agreement check (Gemini or a labelled demo fixture) |
+| Acceptance, bookings, reviews, reports | Not implemented (M8–M10) |
 
 ## 6. Voice and AI (M3)
 
@@ -439,13 +441,62 @@ Rules: one open invitation per request; a different worker cannot be invited whi
 (`invitation_already_active`); a worker who paused or lost eligibility after being listed cannot be invited.
 An invitation does **not** book the worker or reserve time.
 
-## 10. Checks and tests
+## 10. Conversations and quotations (M7)
+
+After pulling, from `backend/`: `python manage.py migrate` (adds the `conversations` app). Demo workers come from
+`python manage.py seed_demo_workers` (§9).
+
+### Demo: talk, quote, clarify
+
+1. **As a customer**, invite demo worker `03009990101` (§9). On **Find a worker**, the open invitation now has
+   **Open conversation / بات چیت کھولیں**. Write a message and send it.
+2. **As the worker** (another browser or a private window), open the invitation and tap
+   **Talk to the customer and send a quote**.
+   - New messages appear within about 5 seconds. Anything you are typing is kept.
+   - **Speak** → record or upload a voice note → **Prepare caption**. Check and correct the Urdu caption; the
+     other person reads exactly that text. If no caption can be made, you can type one or send the voice note
+     with "Caption unavailable".
+3. **Prepare a quote** as the worker: what the work covers, whole-job or per-item labour, who supplies the
+   materials, any visit or inspection fee, what is not included, and the proposed time (Pakistan time).
+   - An amount you don't know yet can be left empty. It shows as "not known yet" and is never counted as zero.
+   - **Send quote**. A sent version cannot be changed; **Send a revised quote** creates the next version, and
+     earlier versions stay under "Earlier versions".
+4. Both people see the same quote, with **Read aloud** in Urdu or English, and the **automatic check**.
+   - Example conflict: the request says *"1200 روپے سامان سمیت"* (materials included), but the quote says the
+     customer supplies the materials.
+   - The check shows the exact statements that disagree, a short question, and who should answer.
+   - Clarify in the chat. Then either the worker sends a revised quote, or one of you records what was agreed
+     under **Save clarification**; a note is required.
+5. When nothing blocking is left, both see **Ready for customer acceptance**. Accepting and booking come in M8.
+6. If the customer withdraws (or the worker declines), the conversation stays readable from the invitation
+   history (**View conversation**), but nothing new can be sent.
+
+In demo mode the automatic check is a **labelled simulation** ("Simulated result (not real AI)"). It uses keyword
+rules for the materials example only.
+
+**Live check with Gemini:** set `AGREEMENT_CHECK_PROVIDER=gemini` in `.env` (the key is the same
+`GEMINI_API_KEY`), restart, and run `python manage.py check_ai_providers --only agreement_check`. If the checker
+cannot run, the quote shows **"The automatic check could not run"**, never a pass. The customer can then try again
+or confirm they compared the quote themselves.
+
+### Rules the server enforces
+
+- Only the customer and the invited worker can read, play or write. Anyone else gets "not found".
+- Messages cannot be edited or deleted. A send that is retried with the same device-generated ID is stored once.
+- Quotes are structured and their totals are computed on the server. A version expires after 24 hours or at its
+  start time, whichever comes first.
+- Sending a quote and closing the invitation are serialised. A quote can never be sent after the invitation
+  closed.
+- The automatic check receives the shared request summary, approved message texts and the quote terms only. It
+  never receives the address, access notes, photos, audio or phone numbers.
+
+## 11. Checks and tests
 
 ```bash
 # Backend (from backend/, venv active) — runs against a real PostgreSQL test database
 python manage.py check
 python manage.py makemigrations --check --dry-run
-python manage.py test --settings=config.settings.test
+python manage.py test --settings=config.settings.test   # "manage.py test" now defaults to these settings
 
 # Frontend (from frontend/)
 npm run typecheck
@@ -460,7 +511,7 @@ curl http://localhost:5173/api/v1/health/live/    # {"status":"ok"}
 curl http://localhost:5173/api/v1/health/ready/   # {"status":"ok","checks":{"database":"ok"}} or 503
 ```
 
-## 11. Production-like local run (same origin)
+## 12. Production-like local run (same origin)
 
 Builds the frontend and lets Django serve everything on one port, with production settings
 (HTTPS redirect disabled only because this local test uses plain HTTP):
@@ -495,7 +546,7 @@ one.
 - **Libraries**: listed with versions in [docs/architecture.md](docs/architecture.md#1-stack-resolved-versions-m1),
   `backend/requirements.txt` and `frontend/package-lock.json`. Icons: lucide-react (ISC). Urdu font: Noto Nastaliq Urdu (SIL Open Font
   License) via `@fontsource/noto-nastaliq-urdu`, self-hosted.
-- **External services / AI providers**: Google Gemini API (speech-to-text, interpretation) and Azure AI Speech or ElevenLabs (text-to-speech), used only when keys are configured; M2 phone confirmation is a labelled simulation. CNIC OCR uses the locally installed
+- **External services / AI providers**: Google Gemini API (speech-to-text, interpretation, quotation agreement check) and Azure AI Speech or ElevenLabs (text-to-speech), used only when keys are configured; M2 phone confirmation is a labelled simulation. CNIC OCR uses the locally installed
   Tesseract OCR engine (Apache-2.0) via its command line, with Pillow (MIT-CMU) for image checks. The identity
   registry is a local, fictional, demo-only simulation. OTP and NADRA providers are not integrated.
 - **AI coding tools**: this codebase is being written with AI coding assistance (Claude Code, Anthropic).

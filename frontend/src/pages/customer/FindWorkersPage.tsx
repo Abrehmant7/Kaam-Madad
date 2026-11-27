@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, EyeOff, Save, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, MessagesSquare, Save, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 
@@ -132,6 +132,9 @@ function Workers({ jobId, recs, catalog, history, reload }: {
             </StatusBadge>
           </div>
           <p className="text-sm text-muted">{t("rec.notABooking")}</p>
+          <ButtonLink to={`/conversations/${active.id}`} fullWidth icon={<MessagesSquare className="size-5" aria-hidden />}>
+            {t("conv.open")}
+          </ButtonLink>
           <Button variant="secondary" loading={busy === "withdraw"} loadingLabel={t("onboarding.saving")} icon={<X className="size-5" aria-hidden />}
             onClick={() => void act("withdraw", () => invitationsApi.withdrawInvitation(jobId, active.id))}>
             {t("rec.active.withdraw")}
@@ -226,7 +229,12 @@ function Workers({ jobId, recs, catalog, history, reload }: {
             {closedHistory.map((item) => (
               <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line px-3 py-2 text-sm">
                 <span>{workerTitle(item.worker.trade, item.worker.worker_id, catalog, language, t)}</span>
-                <StatusBadge tone="neutral">{t(`inv.status.${item.status}`)}</StatusBadge>
+                <span className="flex flex-wrap items-center gap-2">
+                  <StatusBadge tone="neutral">{t(`inv.status.${item.status}`)}</StatusBadge>
+                  <ButtonLink to={`/conversations/${item.id}`} variant="ghost" icon={<MessagesSquare className="size-4" aria-hidden />}>
+                    {t("conv.view")}
+                  </ButtonLink>
+                </span>
               </li>
             ))}
           </ul>

@@ -1,6 +1,8 @@
 import { apiRequest } from "./client";
 
 export type VoiceKind = "worker_introduction" | "job_description";
+/** Upload purposes: the two interpretation kinds, plus conversation voice notes (never interpreted as drafts). */
+export type ClipPurpose = VoiceKind | "message";
 export type LanguageHint = "ur" | "en";
 
 /** AI calls can take longer than ordinary requests (server retries are bounded). */
@@ -8,7 +10,7 @@ const AI_TIMEOUT_MS = 60_000;
 
 export interface AudioClip {
   id: string;
-  purpose: VoiceKind;
+  purpose: ClipPurpose;
   source: "recording" | "upload";
   mime_type: string;
   size_bytes: number;
@@ -86,7 +88,7 @@ export interface Synthesis {
   reused: boolean;
 }
 
-export function uploadClip(file: Blob, filename: string, purpose: VoiceKind, source: "recording" | "upload") {
+export function uploadClip(file: Blob, filename: string, purpose: ClipPurpose, source: "recording" | "upload") {
   const form = new FormData();
   form.append("file", file, filename);
   form.append("purpose", purpose);

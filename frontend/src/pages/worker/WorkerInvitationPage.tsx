@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban } from "lucide-react";
+import { ArrowLeft, Ban, MessagesSquare } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 
@@ -57,6 +57,10 @@ export function WorkerInvitationPage() {
       <SharedJob job={invitation.job} catalog={catalog} />
       <ReadAloud text={sharedSpeech(invitation.job, catalog, language, t)} language={language} />
       <p className="text-sm text-muted">{t("inv.privacyNote")}</p>
+      <ButtonLink to={`/conversations/${invitation.id}`} variant={invitation.status === "active" ? "primary" : "secondary"} fullWidth
+        icon={<MessagesSquare className="size-5" aria-hidden />}>
+        {invitation.status === "active" ? t("conv.openWorker") : t("conv.view")}
+      </ButtonLink>
 
       {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}
       {invitation.status === "active" && (

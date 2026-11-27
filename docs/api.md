@@ -1,7 +1,7 @@
 # Kaam Madad — API Contracts
 
 All endpoints are under `/api/v1/`, return JSON, and are served from the same origin as the web app.
-Implemented through **M6**. Planned endpoint families for later modules are listed in
+Implemented through **M7**. Planned endpoint families for later modules are listed in
 [requirements.md §10](requirements.md#10-api-contracts-and-screen-inventory) and are **not** implemented.
 
 ## Conventions
@@ -22,9 +22,9 @@ a field use `non_field_errors`). `details` holds optional non-sensitive context.
 |---|---|---|
 | 400 | Invalid input or rejected action | `validation_error`, `invalid_credentials`, `code_incorrect`, `code_expired`, `no_active_code`, `parse_error` |
 | 401 | No valid session (log in) — header `WWW-Authenticate: Session` | `not_authenticated` |
-| 403 | Signed in / identified but not allowed | `permission_denied`, `csrf_failed`, `account_inactive`, `worker_role_required`, `customer_role_required`, `marketplace_role_required` |
+| 403 | Signed in / identified but not allowed | `permission_denied`, `csrf_failed`, `account_inactive`, `worker_role_required`, `customer_role_required`, `marketplace_role_required`, `worker_only`, `customer_only` |
 | 404 | Unknown resource or `/api/` path | `not_found` |
-| 409 | Conflicts with current state | `already_authenticated`, `phone_already_confirmed` |
+| 409 | Conflicts with current state | `already_authenticated`, `phone_already_confirmed`, `invitation_already_active`, `invitation_closed`, `conversation_closed`, `no_quote_draft`, `quote_not_current`, `check_not_needed` |
 | 429 | Rate limited (`Retry-After` header; `details.retry_after_seconds`) | `throttled`, `resend_too_soon`, `send_limit_reached`, `too_many_attempts` |
 | 500 / 503 | Server error / not ready or provider unavailable | `server_error`, `service_not_ready`, `phone_verification_unavailable` |
 
@@ -526,3 +526,173 @@ Workers still cannot open `/jobs/…` (`403`).
 - Declining or withdrawing frees the slot. Inviting again, even the same worker, creates a **new** invitation ID.
 - Closed invitations stay as history.
 - An invitation never reserves time or confirms a booking (M8).
+
+## Conversations, quotes and agreement gaps (M7)
+
+Everything lives under `/conversations/{invitation_id}/`. One conversation belongs to one invitation.
+
+**Who can use it.** Only the request owner and the invited worker. Anyone else, including another worker or
+another customer, gets `404` for every endpoint, so the conversation's existence is not revealed.
+
+**Writes.** Sending messages, saving or sending quotes, resolving points and manual review need an **active**
+invitation. Otherwise they return `409 conversation_closed`. After a decline or withdrawal, messages and all quote
+versions stay readable to both people. Rate limit: `conversation_user` 600/hour per account.
+
+### Header
+
+`GET /conversations/{id}/` →
+
+```json
+{"invitation": {"id": "…", "status": "active", "created_at": "…Z", "closed_at": null},
+ "role": "customer", "can_write": true,
+ "job": {"description": "…", "trade": "…", "services": […], "services_excluded": […], "city": "…", "area": "…",
+         "window_start": "…Z", "window_end": "…Z", "budget_preference_pkr": "3500.00", "has_photos": false},
+ "job_id": "<request ID: customer only, null for the worker>",
+ "counterpart": {"role": "worker", "worker_id": "…", "trade": "electrician"}}
+```
+
+- `job` is the invitation's shared summary from M6. The worker never receives the address, access notes,
+  photos, original recording or customer identity.
+- The worker's `counterpart` is just `{"role": "customer"}`.
+
+### Messages
+
+- **List:** `GET …/messages/` returns the newest page (30) as `{"results": [Message], "has_more_before": bool}`,
+  oldest first.
+  - `?after=<message_id>` returns newer messages (polling). The app polls every 5 s and only appends, so text
+    being typed is never touched.
+  - `?before=<message_id>` returns the previous page.
+  - An unknown cursor is `400 cursor: invalid`.
+- **Send:** `POST …/messages/`.
+  - Text: `{"client_id": "<uuid made on the device>", "kind": "text", "text": "…"}` (1–1000 characters).
+  - Voice: `{"client_id", "kind": "voice", "audio_clip_id", "transcription_id"?, "text"?}`.
+  - `201` with the new Message.
+  - **Retries are safe:** the same `client_id` from the same sender returns `200` with the original message.
+    That holds even after the invitation closed. The device keeps the ID until a send succeeds.
+- **Voice notes:**
+  1. Upload the recording with `POST /audio/clips/`, `purpose: "message"`. It stays private to the uploader
+     until it is sent.
+  2. Optionally get a proposed caption with `POST /audio/transcribe/`.
+  3. Send the voice note with the caption the sender reviewed or edited in `text`.
+  - `caption_status` is one of:
+    - `approved`: a transcription was used and the sender checked it;
+    - `typed`: the sender wrote it without a transcription;
+    - `unavailable`: no caption, and the app shows "Caption unavailable".
+  - The original audio and the approved caption are stored separately. The automatic proposal
+    (`interpreted_text`) is shown only to its sender.
+  - A clip can be used only once, only by its owner, and only with purpose `message`. Otherwise the response is
+    `400 audio_clip_id: not_found`. A transcription of another clip is `400 transcription_id: not_found`.
+- **Playback:** `GET …/messages/{message_id}/audio/` returns the original audio, for the two people only, with
+  `Cache-Control: private, no-store`.
+- Messages cannot be edited or deleted.
+
+```json
+{"id": "…", "client_id": "<only on your own messages>", "sender_role": "worker", "mine": false, "kind": "voice",
+ "text": "میں کل شام پانچ بجے آ سکتا ہوں۔ …", "caption_status": "approved", "interpreted_text": null,
+ "audio_url": "/api/v1/conversations/…/messages/…/audio/", "duration_seconds": 2.0, "created_at": "…Z"}
+```
+
+### Quotes
+
+A quote is a set of **structured terms**. Money is a decimal string in PKR, and the server computes every total.
+
+| Field | Values |
+|---|---|
+| `inspection_only` | `true` for an inspection visit only. Needs `visit_fee` and a treatment of `charged` or `waived_if_hired`. The repair price stays unknown. |
+| `scope` | What the work covers (required). |
+| `quantity` | 1–999. Required when `labour_basis` is `per_item`. |
+| `labour_amount`, `labour_basis` | `total` (whole job) or `per_item` (amount × quantity). |
+| `materials` | `included` (in the price) · `worker_extra` (the worker brings them, charged separately) · `customer` (the customer supplies them) · `none`. |
+| `materials_amount` | Only with `worker_extra`. Leave it empty while unknown. |
+| `visit_fee`, `visit_fee_treatment` | Treatment is `none` · `charged` · `waived_if_hired` · `included`. |
+| `exclusions` | Work not covered. |
+| `start_at`, `end_at` | ISO timestamps. A time without an offset is read as Asia/Karachi; responses are UTC `…Z`. `end_at` must be after `start_at`. The start cannot be in the past or more than 90 days ahead. |
+
+**Totals.** `totals` is `{labour_total, materials_total, visit_total, known_total, unknown: ["materials"|"labour"|"repair"], complete}`.
+An unknown amount is never shown as zero: `known_total` adds up only the known parts, and `complete` is `false`
+while anything is unknown.
+
+**Endpoints:**
+- **Listing:** `GET …/quotes/` → `{"current": Quote|null, "draft": Quote|null, "history": [Quote], "readiness": Readiness}`.
+  - `draft` is visible to the worker only.
+  - `history` holds superseded versions, newest first, each with its own findings.
+- **Draft (worker only; the customer gets `403 worker_only`):**
+  - `PUT …/quotes/draft/` saves all fields and returns the draft. The draft includes `issues`, which lists the
+    field error codes it would fail on if sent.
+  - `DELETE …/quotes/draft/` discards it (`204`).
+- **Send:** `POST …/quotes/draft/submit/` → `201` Quote.
+  - Validation failures return `400` with `fields`. Codes: `required`, `amount_out_of_range`,
+    `quantity_out_of_range`, `materials_amount_not_applicable`, `visit_fee_treatment_missing`,
+    `inspection_fee_treatment`, `window_end_before_start`, `window_in_past`, `window_too_far`.
+  - Returns `409 no_quote_draft` when there is no draft.
+  - The version gets the next number, and the previous version becomes `superseded`.
+  - **Submitted versions are frozen**; a database constraint backs this. To change anything, send a new version.
+- **One version:** `GET …/quotes/{quote_id}/` → the Quote plus `readiness` for that version.
+
+**Expiry.** `expires_at = min(submitted_at + QUOTE_VALIDITY_HOURS (24), start_at)`. An expired version is not
+ready.
+
+**Concurrency.** Sending locks the request, then the invitation, then the draft. That is the same order M6
+uses to send an invitation, and withdraw/decline lock the invitation. The invitation is checked again inside the
+transaction, so a quote can never be submitted after its invitation closed. A double submit creates one
+version.
+
+### Agreement check (GAP-01)
+
+When a version is sent, the server runs two checks:
+1. **Deterministic rules:**
+   - `timing_differs` (blocking; the customer answers): the proposed time falls outside the requested window.
+   - `materials_amount_unknown` (a note, not blocking).
+2. **The configured checker** (`AGREEMENT_CHECK_PROVIDER`: `fixture` in demo · `gemini` · `unconfigured`). It
+   receives only the shared request summary, the message texts the senders approved (the last 40) and the quote
+   terms, with all times in one Asia/Karachi format. It never receives the address, access notes, photos, audio,
+   names or phone numbers.
+
+Every checker finding must quote its **source statements**. A finding whose quoted text does not appear in the
+input is dropped. Each finding is tied to that quote version.
+
+`check.status` is one of:
+- `passed`: the check ran and found nothing.
+- `findings`: the check found points to clarify.
+- `unavailable`: the checker could not run. **This is never shown as a pass.** `check.failure` holds the error
+  code, for example `ai_provider_unavailable`.
+- `not_run`.
+
+`check.simulated` is `true` for the fixture.
+
+**Related actions:**
+- **Run again:** `POST …/quotes/{id}/check/`. Allowed only when the status is `not_run` or `unavailable`;
+  otherwise `409 check_not_needed`.
+- **Manual review** (customer only, only when the check is `unavailable`): `POST …/quotes/{id}/manual-review/`.
+  It is recorded as a manual review, not as a passed check.
+- **Resolve a point:** `POST …/quotes/{id}/findings/{finding_id}/resolve/`
+  `{"resolution": "clarified"|"not_a_conflict", "note": "what was agreed" (3–500)}`.
+  - A point cannot be dismissed without a note. Who resolved it, their role and when are recorded.
+  - If the agreed price or terms change, the worker must send a new version; the new version is checked again.
+  - Older and superseded versions return `409 quote_not_current`.
+
+```json
+{"id": "…", "source": "ai", "code": "materials_responsibility", "blocking": true, "ask": "worker",
+ "question": "گاہک سمجھتے ہیں کہ سامان شامل ہے، مگر قیمت میں سامان شامل نہیں۔ …",
+ "sources": [{"kind": "request", "ref": "description", "text": "1200 روپے سامان سمیت۔"},
+             {"kind": "quote", "ref": "materials", "text": "customer"}],
+ "status": "open", "resolution": null, "resolution_note": null, "resolved_role": null, "resolved_at": null}
+```
+
+Codes are `materials_responsibility`, `quantity_mismatch`, `price_basis`, `visit_fee`, `scope_mismatch`,
+`timing_mismatch`, `other` and the two rule codes. Blocking points stop readiness until they are resolved; notes
+only add a warning.
+
+### Readiness (hand-off to M8)
+
+`GET …/readiness/` →
+
+```json
+{"invitation_id": "…", "quote_id": "…", "version": 2, "expires_at": "…Z", "ready": true, "blocking": [], "warnings": []}
+```
+
+`blocking` codes are `invitation_not_active`, `no_quote`, `quote_not_submitted`, `quote_superseded`,
+`quote_expired`, `unresolved_findings`, `automated_check_not_run`, `automated_check_unavailable` (until the
+customer's manual review) and `worker_not_eligible`. `warnings` codes are `open_notes` and `unknown_amounts`.
+
+M7 ends at **"Ready for customer acceptance"**. Acceptance, booking, reservation and arrival codes are M8.

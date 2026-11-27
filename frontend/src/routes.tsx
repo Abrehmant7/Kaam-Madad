@@ -3,6 +3,7 @@ import type { RouteObject } from "react-router";
 import { GuestOnly, RequireAuth } from "./auth/guards";
 import { AppShell } from "./components/layout/AppShell";
 import { CatalogPreviewPage } from "./pages/CatalogPreviewPage";
+import { ConversationPage } from "./pages/ConversationPage";
 import { CustomerDashboardPage } from "./pages/customer/CustomerDashboardPage";
 import { DescribeJobPage } from "./pages/customer/DescribeJobPage";
 import { FindWorkersPage } from "./pages/customer/FindWorkersPage";
@@ -47,6 +48,7 @@ export const routes: RouteObject[] = [
           { path: "account", element: <AccountHomePage /> },
           { path: "account/phone", element: <PhoneConfirmationPage /> },
           { path: "voice-test", element: <VoiceTestPage /> },
+          { path: "conversations/:id", element: <ConversationPage /> },
         ],
       },
       {

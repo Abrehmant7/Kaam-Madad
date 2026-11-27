@@ -16,11 +16,180 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M4 Worker onboarding and identity check | ✅ Complete (27 Nov 2026) — real Tesseract OCR verified on synthetic cards; registry simulated |
 | M5 Customer and job requests | ✅ Complete (27 Nov 2026) — fixture and live voice checks recorded |
 | M6 Recommendations and invitations | ✅ Complete (27 Nov 2026) |
-| M7 Communication and agreements | ⬜ Next |
-| M8 Booking and arrival | ⬜ Not started |
+| M7 Communication and agreements | ✅ Complete (27 Nov 2026) — fixture walk-through; live Gemini agreement check verified with `gemini-3-flash-preview` |
+| M8 Booking and arrival | ⬜ Next |
 | M9 Completion and feedback | ⬜ Not started |
 | M10 Reporting and moderation | ⬜ Not started |
 | M11 Integration and delivery | ⬜ Not started |
+
+---
+
+## M7 Private conversation, quotations and agreement gaps — complete (27 Nov 2026)
+
+### Delivered
+
+- [x] **Conversation per invitation** (`apps/conversations`, migration `conversations.0001`; voice `0003` adds the
+  `message` audio purpose):
+  - Only the job owner and the invited worker can read, play or write; everyone else gets `404`.
+  - Writes need an active invitation (`409 conversation_closed`). History stays readable after a decline or
+    withdrawal.
+  - Text messages and **voice notes**. The sender reviews or edits the proposed Urdu caption before sending.
+    The original audio, the automatic proposal and the approved caption are stored separately, and both sides
+    see "Caption unavailable" when there is no caption.
+  - Playback is private and `no-store`. Draft uploads stay owner-only.
+  - Messages are immutable. A device-generated `client_id` makes retries return the stored message.
+  - Paginated (30) with `after`/`before` cursors. The client polls every 5 s without touching text being typed.
+- [x] **Structured, versioned quotes:**
+  - Terms: scope, quantity, labour (whole job or per item), materials responsibility and amount,
+    visit/inspection fee and treatment, exclusions, start/end.
+  - Money is Decimal PKR; totals are computed on the server; unknown amounts stay unknown (never zero).
+  - Inspection-only quotes are supported.
+  - Submitted versions are frozen (database constraint). A revision supersedes the previous version, and
+    history is kept.
+  - A version expires at min(24 h, start time).
+  - Submit and invitation closure are concurrency-safe: lock order job → invitation → draft, with the
+    invitation re-checked inside the transaction.
+- [x] **Agreement-gap check:**
+  - Deterministic rules (time outside the requested window; materials cost unknown).
+  - The configured checker (`AGREEMENT_CHECK_PROVIDER`: Gemini, or a labelled demo fixture) gets the shared
+    request summary, approved message texts and the quote terms only. Every finding must quote source
+    statements that appear in that input; others are dropped.
+  - Findings show the statements word for word, a short question and who should answer. They are tied to
+    the quote version and are resolved explicitly (clarified / not a conflict) with a required note; a changed
+    price means a new, re-checked version.
+  - A checker that cannot run shows "could not run" (never a pass). The check can be retried, or the customer
+    can record a manual review.
+- [x] **M8 hand-off:** `GET /conversations/{id}/readiness/` →
+  `{invitation_id, quote_id, version, expires_at, ready, blocking[], warnings[]}`. The UI shows **"Ready for
+  customer acceptance"** or the blocking reasons. Acceptance, booking, reservation and arrival codes are not
+  built.
+- [x] **Frontend:**
+  - `/conversations/:id`, with links from the customer's open invitation and invitation history and from the
+    worker's invitation page.
+  - The same structured quote card for both sides, with Urdu/English read-aloud of the key terms.
+  - The worker's quote form uses icon tiles and Pakistan time.
+- [x] `check_ai_providers --only agreement_check` runs the configured checker on a fictional labour-vs-materials
+  sample.
+
+### Checks (27 Nov 2026)
+
+| Check | Result |
+|---|---|
+| Backend tests (real PostgreSQL) | ✅ **297 passed**: 20 new for M7, including **2 PostgreSQL concurrency tests** (threads, separate connections): 5 submit-vs-withdraw races never leave a version submitted after closure; a double submit gives one version |
+| `check`, `makemigrations --check` | ✅ No issues, no pending migrations |
+| Frontend typecheck / tests / build | ✅ No errors / **80 passed** (9 new) / built |
+
+Backend tests cover:
+- Two accounts exchange text and a voice note, and a third customer and another worker get `404` on the
+  header, messages, audio and send.
+- A draft clip stays private.
+- Captions: approved, typed and unavailable.
+- Retrying a send stores one message.
+- Pagination and polling.
+- After a decline or withdrawal, history stays readable while sends, drafts, submits and resolutions are blocked.
+- The labour-vs-materials conflict:
+  - it is reported with sources, and a clarification plus revised v2 reaches ready;
+  - v1 keeps its terms and findings, and its readiness says superseded.
+- An explicit not-a-conflict resolution needs a note.
+- Every validation code, plus totals with an unknown amount.
+- Inspection-only quotes.
+- Expiry at min(24 h, start).
+- The timing rule.
+- Checker failures:
+  - unexpected errors and an unconfigured provider become "unavailable", never a pass;
+  - the customer-only manual review;
+  - re-running the check.
+- Roles: drafts are the worker's only.
+- No private fields reach the checker, and times reach it in one Karachi format.
+- Invented sources are dropped, and the Gemini request has the right shape (mocked).
+
+### Two-account walk-through (three Chrome sessions at 360 px, real backend and PostgreSQL)
+
+All AI providers used **fixtures** here; the screens labelled the check "Simulated result (not real AI)".
+
+1. **Customer (Urdu)** confirmed a request saying *"1200 روپے سامان سمیت"*, invited demo worker 03009990101,
+   opened the conversation from **Find a worker** and sent a text.
+2. **Worker (English, second browser)** opened it from the invitation page.
+   - The page showed no address or access notes.
+   - The worker uploaded a voice note, reviewed the proposed Urdu caption and sent it.
+   - The customer received it by polling. Text the customer was typing was kept.
+   - The audio played (`200 audio/wav`, `private, no-store`), and the automatic proposal was not exposed to the
+     customer.
+3. **Third account:** a new customer got `404` on the header, messages, audio, quotes and send. Demo worker
+   03009990102 got `404` on the header and audio.
+4. **Retry:** the same `client_id` sent twice gave `201` then `200`, with the same ID and one stored message.
+5. **Quote v1** (600 per item × 2, customer supplies materials):
+   - The check flagged `materials_responsibility`, quoting the request sentence and the quote's materials
+     term.
+   - Both sides saw "Not ready", the readiness API said `unresolved_findings`, and the card showed
+     PKR 1,200 known total.
+6. **Clarification and v2:**
+   - Customer and worker clarified in the chat. The worker sent v2: whole job PKR 1,500, materials included.
+   - v1 became `superseded` and kept its terms and finding.
+   - The fixture flagged v2 too, because the worker's earlier voice note said the customer would buy the
+     materials. The customer resolved it with a note.
+   - Both saw **Ready for customer acceptance**. Readiness: `ready: true`, version 2, `expires_at` 24 h after
+     sending.
+7. **Withdrawal:** the customer withdrew. The conversation stayed readable from the invitation history.
+   - Sends and draft saves returned `409`; the 5 messages were kept; readiness said `invitation_not_active`.
+   - Both screens showed the closed notice and no composer.
+8. **Layouts:** no horizontal overflow on any of the 13 screens.
+
+### Which AI checks ran live
+
+| Capability | How it was checked | Result |
+|---|---|---|
+| Agreement check, fixture | Tests, walk-through, `check_ai_providers` | ✅ Labelled simulated. Keyword rules for the materials example only |
+| Agreement check, **live Gemini `gemini-3-flash-preview`** | `check_ai_providers --only agreement_check` on the fictional sample | ✅ One correct `materials_responsibility` finding, quoting the request, the worker's message and the quote term exactly (11.9 s) |
+| Agreement check, live Gemini `gemini-3.6-flash` (the configured default) | Same | ❌ Provider timeouts, then `503`, on two attempts. Reported as `ai_provider_unavailable`, which the app shows as "could not run" |
+| Voice-note caption (speech-to-text) | Walk-through with the fixture transcript | Fixture only in M7. The live Gemini transcription path is the same as M5's |
+| Quote read-aloud | Walk-through with fixture TTS | Fixture only in M7. ElevenLabs was live-checked in M3 |
+
+### Issues found and fixed
+
+- **Live Gemini output was truncated** (`status: incomplete`, invalid JSON): thinking used about 1,050 of the
+  1,500-token budget. The budget is now `GEMINI_AGREEMENT_MAX_TOKENS` (default 6000).
+- **Live false positive on time:** the request window was sent in UTC and the quote in +05:00, and the model
+  reported the same instant as a conflict. Both are now sent in one Asia/Karachi format, and the instruction
+  says equal times and unknown amounts are not conflicts. A test was added.
+- `readiness.expires_at` used a different timestamp format from the rest of the API. It is now UTC `…Z`
+  everywhere.
+- The conversation composer passed an unstable callback to `VoiceCapture`. After a real microphone recording,
+  that would have reset the caption on every render; the callback is now stable.
+- Read-aloud said "1,200. روپے" (the regex took the full stop) and used "." in Urdu. Fixed and unit-tested.
+- **A test run used development settings:** I once ran `manage.py test` without `--settings`. It loaded the real
+  Gemini key from `.env`, and one transcription test made a live call; the audio was a generated test tone and
+  the call timed out. `manage.py test` now defaults to `config.settings.test`.
+- Quantity 0 or 1000 gave the generic "must be zero or more"; it now gives `quantity_out_of_range`. The fixture's
+  question now follows the language of the statement it quotes (Urdu for Urdu).
+
+### Known limitations
+
+- **Demo fixture:** the agreement fixture only recognises the materials example. Other contradictions in demo
+  mode need the live checker.
+- **Live model:** the live checker was verified with `gemini-3-flash-preview` only. The default
+  `gemini-3.6-flash` was overloaded during testing. Model output is advisory: it can miss contradictions or
+  raise false ones, which is why every finding shows its source statements and needs an explicit, noted
+  resolution.
+- **Resolving points:** either participant can resolve a point. There is no separate confirmation by the other
+  person; customer acceptance of a specific version is M8.
+- **Updates:** messages and quotes update by polling (5 s / 15 s). There are no push notifications.
+- **Translation:** messages are not translated between Urdu and English.
+- **Privacy in messages:** messages carry a privacy hint, but are not scanned automatically for phone numbers or
+  addresses (unlike the M6 shared description).
+
+### Environment needed
+
+The same as M6. For a live agreement check, set `AGREEMENT_CHECK_PROVIDER=gemini` with `GEMINI_API_KEY`, and
+optionally `GEMINI_AGREEMENT_MODEL` / `GEMINI_AGREEMENT_MAX_TOKENS`. Run `python manage.py migrate` after
+pulling.
+
+### Next module
+
+**M8 Booking and arrival.** Customer acceptance of the ready `quote_id`/`version`:
+- re-check `readiness()` inside the same lock order (job → invitation → quote);
+- booking and time reservation;
+- arrival codes.
 
 ---
 
