@@ -32,6 +32,8 @@ from apps.voice import drafts
 from apps.voice.models import AudioClip, Interpretation, Purpose, Transcription
 
 from . import photos as photo_rules
+from apps.reports.services import require_unrestricted
+
 from . import rules
 from .models import JobPhoto, JobRequest
 
@@ -319,6 +321,7 @@ class JobListCreateView(ListAPIView):
         return self.get_paginated_response([list_payload(job) for job in page])
 
     def post(self, request):
+        require_unrestricted(request.user)  # M10
         serializer = CreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -451,6 +454,7 @@ class JobConfirmView(APIView):
             job = get_own_job(request, job_id, lock=True)
             if job.status == JobRequest.Status.CONFIRMED:
                 return Response({**job_payload(own_jobs(request).get(pk=job.pk)), "already_confirmed": True})
+            require_unrestricted(request.user)  # M10
             errors = rules.check(state_of(job), complete=True)
             if errors:
                 _raise(errors)

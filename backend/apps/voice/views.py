@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from rest_framework import serializers, status
+from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -264,6 +265,8 @@ class TranscribeView(APIView):
         serializer = TranscribeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         clip = get_object_or_404(AudioClip, pk=serializer.validated_data["clip_id"], owner=request.user)
+        if clip.purpose == Purpose.REPORT:  # M10: report audio never goes to a speech provider
+            raise ValidationError({"clip_id": [ErrorDetail("Report recordings are not transcribed.", code="not_transcribable")]})
         try:
             transcription, reused = services.transcribe(clip, serializer.validated_data["language"])
         except ProviderError as exc:

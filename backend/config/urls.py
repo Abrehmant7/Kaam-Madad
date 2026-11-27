@@ -34,6 +34,8 @@ api_v1_patterns = [
     path("invitations/", include(invitation_urls.worker_patterns)),
     path("conversations/", include("apps.conversations.urls")),
     path("bookings/", include("apps.bookings.urls")),
+    path("reports/", include("apps.reports.urls")),
+    path("blocks/", include("apps.reports.block_urls")),
 ]
 
 urlpatterns = [

@@ -1,0 +1,10 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Record a decision</h1>
+<p>Report {{ report.id }} · {{ report.get_category_display }} · status: {{ report.get_status_display }}</p>
+<p>Account actions apply only to the reported account and never change bookings. The original report and evidence are kept.</p>
+<form method="post">{% csrf_token %}
+  {{ form.as_p }}
+  <input type="submit" value="Record">
+</form>
+{% endblock %}

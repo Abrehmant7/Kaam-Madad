@@ -112,6 +112,7 @@ def user_payload(user: User) -> dict:
         "preferred_language": user.preferred_language,
         "is_demo": user.is_demo,
         "is_staff": user.is_staff,
+        "restricted": user.restricted_at is not None,
         "phone_confirmation": {
             "status": user.phone_confirmation_status,
             "method": user.phone_confirmation_method or None,

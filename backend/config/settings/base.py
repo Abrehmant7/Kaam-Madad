@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     "apps.conversations",
     "apps.bookings",
     "apps.reviews",
+    "apps.reports",
 ]
 
 # --------------------------------------------------------------------------
@@ -326,6 +327,7 @@ API_THROTTLE_RATES = {
     "conversation_user": "600/hour",
     "booking_user": "300/hour",
     "review_user": "30/hour",
+    "report_user": "30/hour",
     "arrival_code_issue_user": "10/hour",
     "arrival_code_verify_user": "20/hour",
 }
@@ -367,3 +369,9 @@ LOGGING = {
 # --------------------------------------------------------------------------
 ARRIVAL_CODE_TTL_MINUTES = env_int("ARRIVAL_CODE_TTL_MINUTES", 15, minimum=1)
 ARRIVAL_CODE_MAX_ATTEMPTS = env_int("ARRIVAL_CODE_MAX_ATTEMPTS", 5, minimum=1)
+
+# --------------------------------------------------------------------------
+# Reports (M10): evidence content of resolved/dismissed reports is removed after this many days by
+# `python manage.py purge_report_evidence` (never for open cases or active disputes).
+# --------------------------------------------------------------------------
+REPORT_EVIDENCE_RETENTION_DAYS = env_int("REPORT_EVIDENCE_RETENTION_DAYS", 180, minimum=1)

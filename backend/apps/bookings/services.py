@@ -130,6 +130,8 @@ def _overlaps(worker_profile_id, start, end, *, exclude=None) -> bool:
 
 
 def accept_quote(user, *, invitation_id, quote_id, version, key) -> tuple[Booking, bool]:
+    from apps.reports.services import require_not_blocked, require_unrestricted  # reports depends on bookings
+
     """Create the booking for exactly this quote version. Returns (booking, created)."""
     first = Invitation.objects.select_related("job").filter(pk=invitation_id).first()
     if first is None or first.job.customer_id != user.pk:
@@ -142,7 +144,9 @@ def accept_quote(user, *, invitation_id, quote_id, version, key) -> tuple[Bookin
             if str(same_key.invitation_id) == str(invitation_id) and str(same_key.quote_id) == str(quote_id):
                 return same_key, False  # a retry: the original booking, whatever happened to it since
             raise errors.IdempotencyKeyReused(details={"booking_id": str(same_key.id)})
+        require_unrestricted(user)                                                              # M10
         invitation = Invitation.objects.select_for_update().get(pk=invitation_id)               # 2. invitation
+        require_not_blocked(user, invitation.worker_profile.user_id)                            # M10
         booked = Booking.objects.filter(job=job).exclude(status=Booking.Status.CANCELLED).first()
         if booked is not None:
             raise errors.JobAlreadyBooked(details={"booking_id": str(booked.id)})

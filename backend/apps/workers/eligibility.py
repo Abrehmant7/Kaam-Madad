@@ -63,6 +63,8 @@ def worker_eligibility(user, profile: WorkerProfile | None = None) -> Eligibilit
         return Eligibility(False, False, ["not_a_worker"])
     if not user.is_active:
         reasons.append("account_inactive")
+    if getattr(user, "restricted_at", None) is not None:  # M10: staff restriction
+        reasons.append("account_restricted")
     if profile is None:
         profile = WorkerProfile.objects.filter(user=user).first()
     if profile is None or not is_complete(profile):

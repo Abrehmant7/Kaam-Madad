@@ -40,6 +40,7 @@ class Purpose(models.TextChoices):
     JOB_DESCRIPTION = "job_description", "Job description"
     MESSAGE = "message", "Conversation voice note"
     REVIEW = "review", "Review of a completed job"
+    REPORT = "report", "Private report or evidence (never transcribed)"
 
 
 class AudioClip(models.Model):

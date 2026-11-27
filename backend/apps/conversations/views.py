@@ -29,6 +29,7 @@ from apps.core.api.exceptions import ApiError
 from apps.invitations.models import Invitation
 from apps.invitations.views import _booking_link, shared_view
 from apps.jobs.models import JobRequest
+from apps.reports.services import block_state, require_not_blocked, require_unrestricted
 from apps.voice.models import AudioClip, Purpose, Transcription
 
 from . import quotes as rules
@@ -113,6 +114,24 @@ def require_active(invitation: Invitation) -> None:
         raise ConversationClosed()
 
 
+def require_contact_allowed(invitation: Invitation, user) -> None:
+    """M10: a restricted account cannot start new contact; nothing new between a blocked pair."""
+    require_unrestricted(user)
+    require_not_blocked(invitation.job.customer_id, invitation.worker_profile.user_id)
+
+
+def write_state(invitation: Invitation, user) -> tuple[bool, str | None, dict]:
+    other = invitation.worker_profile.user if invitation.job.customer_id == user.pk else invitation.job.customer
+    block = block_state(user, other)
+    if invitation.status != Invitation.Status.ACTIVE:
+        return False, "closed", block
+    if block["blocked"]:
+        return False, "contact_blocked", block
+    if user.restricted_at is not None:
+        return False, "account_restricted", block
+    return True, None, block
+
+
 class JobBooked(ApiError):
     status_code = status.HTTP_409_CONFLICT
     default_code = "job_already_booked"
@@ -132,13 +151,16 @@ def require_not_booked(invitation: Invitation) -> None:
 _iso = rules.iso_utc
 
 
-def header_payload(invitation: Invitation, role: str) -> dict:
+def header_payload(invitation: Invitation, role: str, user) -> dict:
     profile = invitation.worker_profile
+    can_write, why_not, block = write_state(invitation, user)
     return {
         "invitation": {"id": str(invitation.id), "status": invitation.status, "created_at": _iso(invitation.created_at),
                        "closed_at": _iso(invitation.closed_at)},
         "role": role,
-        "can_write": invitation.status == Invitation.Status.ACTIVE,
+        "can_write": can_write,
+        "write_blocked_reason": why_not,
+        "contact_block": block,
         "job": shared_view(invitation.shared_summary),
         # Only the owner gets the request ID (for the link back to their request); the worker never does.
         "job_id": str(invitation.job_id) if role == "customer" else None,
@@ -231,7 +253,7 @@ class ConversationView(APIView):
 
     def get(self, request, invitation_id):
         invitation, role = participation(request, invitation_id)
-        return Response(header_payload(invitation, role))
+        return Response(header_payload(invitation, role, request.user))
 
 
 class SendSerializer(StrictFieldsMixin, serializers.Serializer):
@@ -297,6 +319,7 @@ class MessagesView(APIView):
             if existing:
                 return Response(message_payload(existing, request.user), status=status.HTTP_200_OK)  # a retry
             require_active(invitation)
+            require_contact_allowed(invitation, request.user)  # M10
             message = Message(invitation=invitation, sender=request.user, sender_role=role, client_id=data["client_id"],
                               kind=data["kind"], text=data.get("text", ""))
             if data["kind"] == "voice":
@@ -403,6 +426,7 @@ class QuoteDraftView(APIView):
                 raise WorkerOnly()
             require_active(invitation)
             require_not_booked(invitation)
+            require_contact_allowed(invitation, request.user)  # M10
             draft = invitation.quotes.select_for_update().filter(status=Quote.Status.DRAFT).first() or Quote(invitation=invitation)
             for name, value in serializer.validated_data.items():
                 setattr(draft, name, value)
@@ -429,6 +453,7 @@ def submit_draft(invitation_id, user) -> Quote:
         invitation = Invitation.objects.select_for_update().get(pk=invitation_id)  # 2. invitation, re-read
         require_active(invitation)
         require_not_booked(invitation)  # accept vs revision: whoever locks the job first wins
+        require_contact_allowed(invitation, user)  # M10
         draft = invitation.quotes.select_for_update().filter(status=Quote.Status.DRAFT).first()
         if draft is None:
             raise NoDraft()

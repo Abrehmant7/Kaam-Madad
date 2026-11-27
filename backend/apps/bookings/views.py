@@ -131,6 +131,7 @@ def booking_payload(booking: Booking, role: str, now=None) -> dict:
         "staff_outcome": booking.staff_outcome or None,
         "staff_reason": booking.staff_reason or None,
         "review": _review(booking, role),
+        "contact_block": _block(booking, role),
         "arrival_code": _code_state(booking, now),
         "changes": [change_payload(c, role) for c in booking.changes.all()],
         "history": [
@@ -152,6 +153,13 @@ def booking_payload(booking: Booking, role: str, now=None) -> dict:
             "review": role == "customer" and booking.status == Booking.Status.COMPLETED and not booking.reviews.exists(),
         },
     }
+
+
+def _block(booking: Booking, role: str) -> dict:
+    from apps.reports.services import block_state
+
+    me, other = (booking.customer, booking.worker_profile.user) if role == "customer" else (booking.worker_profile.user, booking.customer)
+    return block_state(me, other)
 
 
 def _review(booking: Booking, role: str) -> dict | None:

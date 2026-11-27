@@ -16,7 +16,10 @@ Design (AUTH-01, AUTH-02, DATA-01):
   establishes legal identity or trade competence.
 
 Suspension uses ``is_active=False`` (Django then refuses login and drops the
-session's user). A richer restricted state is added in M10.
+session's user). M10 adds a separate marketplace RESTRICTION (``restricted_at``): a restricted
+user can still sign in, view existing records, file reports and reply to staff, but cannot start
+new marketplace activity (requests, invitations, messages, quotes, bookings). Only staff with the
+``reports.take_account_action`` permission set or lift it, always with an audited reason.
 """
 
 from __future__ import annotations
@@ -110,6 +113,12 @@ class User(AbstractBaseUser, PermissionsMixin):
         default="",
         help_text=_("How the phone was confirmed. 'Demo' is simulated and is not real verification."),
     )
+    restricted_at = models.DateTimeField(
+        _("marketplace restricted at"),
+        null=True,
+        blank=True,
+        help_text=_("Set by staff (M10). Restricted users keep access to existing records but cannot start new activity."),
+    )
     date_joined = models.DateTimeField(_("date joined"), default=timezone.now)
     updated_at = models.DateTimeField(_("updated at"), auto_now=True)
 
@@ -156,6 +165,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def masked_phone_number(self) -> str:
         return mask_phone_number(self.phone_number)
+
+    @property
+    def is_restricted(self) -> bool:
+        return self.restricted_at is not None
 
     @property
     def is_worker(self) -> bool:

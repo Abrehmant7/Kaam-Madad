@@ -30,6 +30,7 @@ from apps.jobs.views import job_payload, own_jobs
 
 from apps.bookings.errors import InvitationBooked
 from apps.bookings.services import booking_for_invitation, booking_for_job
+from apps.reports.services import ContactBlocked, blocked_user_ids, is_blocked, require_unrestricted
 
 from . import matching
 from .models import Invitation
@@ -144,7 +145,9 @@ class RecommendationsView(APIView):
         history = {}
         for invitation in job.invitations.order_by("created_at"):
             history[str(invitation.worker_profile_id)] = invitation.status
-        workers = [matching.worker_card(m, history.get(str(m.profile.id))) for m in matching.recommend(summary)]
+        blocked = blocked_user_ids(request.user)  # M10: never recommend a worker either side blocked
+        workers = [matching.worker_card(m, history.get(str(m.profile.id))) for m in matching.recommend(summary)
+                   if m.profile.user_id not in blocked]
         active = _active(job)
         return Response({
             "request": {"trade": summary["trade"], "services": summary["services"], "city": summary["city"],
@@ -173,6 +176,7 @@ def send_invitation(job_id, customer, worker_id) -> tuple[Invitation, bool]:
             raise NotFound()
         if job.status != JobRequest.Status.CONFIRMED:
             raise NotConfirmed()
+        require_unrestricted(customer)  # M10
         booked = booking_for_job(job.pk)
         if booked is not None:  # M8: a booked request takes no new invitations
             raise JobBooked(details={"booking_id": str(booked.id)})
@@ -183,6 +187,8 @@ def send_invitation(job_id, customer, worker_id) -> tuple[Invitation, bool]:
             raise InvitationActive(details={"invitation_id": str(active.id)})
         summary = matching_summary(job)
         profile = matching.candidate_profiles(summary).filter(pk=worker_id).first()
+        if profile is not None and is_blocked(customer, profile.user_id):  # M10: either side blocked the other
+            raise ContactBlocked()
         if profile is None or matching.match_profile(profile, summary) is None:
             # Re-checked now: the worker may have paused, been suspended or changed areas since listing.
             raise ValidationError({"worker_id": [ErrorDetail("This worker cannot receive this request now.",
