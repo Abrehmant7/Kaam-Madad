@@ -145,7 +145,16 @@ def job_payload(job: JobRequest) -> dict:
         "photos": [photo_payload(photo) for photo in job.photos.all()],
         "issues": {name: [code for code, _ in items] for name, items in issues.items()},
         "ready_to_confirm": job.status == JobRequest.Status.DRAFT and not issues,
+        "booking": _booking(job),
     }
+
+
+def _booking(job: JobRequest) -> dict | None:
+    """M8: the request's open booking (never more than one), for the link from the request screens."""
+    from apps.bookings.services import booking_for_job
+
+    booking = booking_for_job(job.pk) if job.status == JobRequest.Status.CONFIRMED else None
+    return {"id": str(booking.id), "status": booking.status} if booking else None
 
 
 def list_payload(job: JobRequest) -> dict:
@@ -161,6 +170,7 @@ def list_payload(job: JobRequest) -> dict:
         "window_end": _iso(job.window_end),
         "updated_at": _iso(job.updated_at),
         "confirmed_at": _iso(job.confirmed_at),
+        "booking": _booking(job),
     }
 
 

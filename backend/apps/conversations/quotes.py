@@ -7,13 +7,17 @@
 - ``rule_findings``: deterministic clarification prompts stored with a submitted version (e.g. the
   proposed time is outside the customer's requested window).
 - ``run_ai_check``: the agreement-check provider on the text needed for the check only; provider
-  failure is recorded as "unavailable", never as a pass.
-- ``readiness``: the M8 hand-off. M8 must re-check it inside its booking transaction.
+  failure is recorded as "unavailable", never as a pass. Each run is an *attempt*: the quote shows
+  "running" meanwhile (acceptance is blocked), the provider is called outside any transaction, and the
+  result is saved only if, under a row lock, the same attempt is still current, the version is still the
+  submitted one and it has not been accepted (late or stale results are discarded).
+- ``readiness``: re-checked by M8 inside the booking transaction.
 """
 
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal
@@ -185,39 +189,87 @@ def check_inputs(quote: Quote) -> tuple[dict, list[dict], dict]:
     return request, messages, quote_terms(quote)
 
 
+def effective_check_status(quote: Quote, now: datetime | None = None) -> str:
+    """``running`` turns into ``unavailable`` when the attempt is older than AGREEMENT_CHECK_STALE_SECONDS (the
+    process that ran it may have died); the check can then be re-run, or the customer can review manually."""
+    if quote.check_status == Quote.CheckStatus.RUNNING:
+        now = now or timezone.now()
+        started = quote.check_started_at or now
+        if now - started > timedelta(seconds=settings.AGREEMENT_CHECK_STALE_SECONDS):
+            return Quote.CheckStatus.UNAVAILABLE
+    return quote.check_status
+
+
+def is_accepted(quote: Quote) -> bool:
+    from apps.bookings.models import Booking  # bookings depends on conversations, not the other way round
+
+    return Booking.objects.filter(quote=quote).exists()
+
+
+def begin_check(quote: Quote) -> uuid.UUID | None:
+    """Mark a new attempt as running. Returns its ID, or None when the version is no longer checkable."""
+    with transaction.atomic():
+        locked = Quote.objects.select_for_update().filter(pk=quote.pk).first()
+        if locked is None or locked.status != Quote.Status.SUBMITTED or is_accepted(locked):
+            return None
+        attempt = uuid.uuid4()
+        locked.check_status, locked.check_attempt, locked.check_started_at = Quote.CheckStatus.RUNNING, attempt, timezone.now()
+        locked.check_failure = ""
+        locked.save(update_fields=["check_status", "check_attempt", "check_started_at", "check_failure", "updated_at"])
+    return attempt
+
+
 def run_ai_check(quote: Quote) -> None:
     """Run the agreement check for a submitted version and store its findings. Never raises."""
+    attempt = begin_check(quote)
+    if attempt is None:
+        return
     request, messages, terms = check_inputs(quote)
-    now = timezone.now()
-    try:
+    try:  # provider call: outside any transaction, no locks held
         result = registry.agreement_checker().check(request=request, messages=messages, quote=terms)
     except ProviderError as exc:
-        _unavailable(quote, f"{exc.code}:{exc.reason}", now)
+        store_check_result(quote.pk, attempt, failure=f"{exc.code}:{exc.reason}")
         return
-    except Exception:  # noqa: BLE001 — any other failure must also show as "could not run", never as a pass
+    except Exception:  # noqa: BLE001 - any other failure must also show as "could not run", never as a pass
         logger.exception("Agreement check failed unexpectedly.")
-        _unavailable(quote, "ai_check_error:unexpected", now)
+        store_check_result(quote.pk, attempt, failure="ai_check_error:unexpected")
         return
+    store_check_result(quote.pk, attempt, result=result)
+
+
+def store_check_result(quote_id, attempt, *, result=None, failure: str | None = None) -> bool:
+    """Save one attempt's outcome if it is still current. Returns False when the result was discarded."""
+    now = timezone.now()
     with transaction.atomic():
-        GapFinding.objects.filter(quote=quote, source=GapFinding.Source.AI, status=GapFinding.Status.OPEN).delete()
-        for finding in result.findings:
-            GapFinding.objects.create(quote=quote, source=GapFinding.Source.AI, code=finding["code"], blocking=True,
-                                      question=finding["question"], ask=finding["ask"], sources=finding["sources"])
-        Quote.objects.filter(pk=quote.pk).update(
-            check_status=Quote.CheckStatus.FINDINGS if result.findings else Quote.CheckStatus.PASSED,
-            check_provider=result.provider, check_simulated=result.simulated, checked_at=now, check_failure="",
-        )
-    logger.info("Agreement check done (provider=%s, findings=%d).", result.provider, len(result.findings))
-
-
-def _unavailable(quote: Quote, failure: str, now) -> None:
-    Quote.objects.filter(pk=quote.pk).update(check_status=Quote.CheckStatus.UNAVAILABLE, checked_at=now,
-                                             check_failure=failure[:64], check_provider="")
-    logger.warning("Agreement check unavailable (%s).", failure.split(":")[0])
+        quote = Quote.objects.select_for_update().filter(pk=quote_id).first()
+        if (quote is None or quote.check_attempt != attempt or quote.status != Quote.Status.SUBMITTED
+                or is_accepted(quote)):
+            logger.info("Agreement check result discarded (stale attempt, superseded or accepted version).")
+            return False
+        if failure is not None:
+            quote.check_status, quote.check_failure, quote.check_provider = Quote.CheckStatus.UNAVAILABLE, failure[:64], ""
+            logger.warning("Agreement check unavailable (%s).", failure.split(":")[0])
+        else:
+            GapFinding.objects.filter(quote=quote, source=GapFinding.Source.AI, status=GapFinding.Status.OPEN).delete()
+            for finding in result.findings:
+                GapFinding.objects.create(quote=quote, source=GapFinding.Source.AI, code=finding["code"], blocking=True,
+                                          question=finding["question"], ask=finding["ask"], sources=finding["sources"])
+            quote.check_status = Quote.CheckStatus.FINDINGS if result.findings else Quote.CheckStatus.PASSED
+            quote.check_provider, quote.check_simulated, quote.check_failure = result.provider, result.simulated, ""
+            logger.info("Agreement check done (provider=%s, findings=%d).", result.provider, len(result.findings))
+        quote.checked_at = now
+        quote.save(update_fields=["check_status", "check_failure", "check_provider", "check_simulated", "checked_at", "updated_at"])
+    return True
 
 
 def current_quote(invitation: Invitation) -> Quote | None:
     return invitation.quotes.filter(status=Quote.Status.SUBMITTED).first()
+
+
+def active_booking(invitation: Invitation):
+    from apps.bookings.models import Booking
+
+    return Booking.objects.filter(invitation=invitation).exclude(status=Booking.Status.CANCELLED).first()
 
 
 def readiness(invitation: Invitation, quote: Quote | None = None, now: datetime | None = None) -> dict:
@@ -226,6 +278,9 @@ def readiness(invitation: Invitation, quote: Quote | None = None, now: datetime 
     quote = quote or current_quote(invitation)
     blocking: list[str] = []
     warnings: list[str] = []
+    booking = active_booking(invitation)
+    if booking is not None:
+        blocking.append("already_booked")
     if invitation.status != Invitation.Status.ACTIVE:
         blocking.append("invitation_not_active")
     if quote is None:
@@ -240,12 +295,17 @@ def readiness(invitation: Invitation, quote: Quote | None = None, now: datetime 
         findings = list(quote.findings.all())
         if any(f.blocking and f.status == GapFinding.Status.OPEN for f in findings):
             blocking.append("unresolved_findings")
+        if any(f.resolution == GapFinding.Resolution.TERMS_CHANGED for f in findings):
+            blocking.append("revision_required")  # agreed terms differ from this version: a new version is needed
         if any(not f.blocking and f.status == GapFinding.Status.OPEN for f in findings):
             warnings.append("open_notes")
         if quote.status == Quote.Status.SUBMITTED:
-            if quote.check_status == Quote.CheckStatus.NOT_RUN:
+            check = effective_check_status(quote, now)
+            if check == Quote.CheckStatus.NOT_RUN:
                 blocking.append("automated_check_not_run")
-            elif quote.check_status == Quote.CheckStatus.UNAVAILABLE and quote.manual_review_at is None:
+            elif check == Quote.CheckStatus.RUNNING:
+                blocking.append("automated_check_running")
+            elif check == Quote.CheckStatus.UNAVAILABLE and quote.manual_review_at is None:
                 blocking.append("automated_check_unavailable")
         if quote.totals and not quote.totals.get("complete"):
             warnings.append("unknown_amounts")
@@ -260,6 +320,7 @@ def readiness(invitation: Invitation, quote: Quote | None = None, now: datetime 
         "ready": not blocking,
         "blocking": blocking,
         "warnings": warnings,
+        "booking_id": str(booking.id) if booking else None,
     }
 
 

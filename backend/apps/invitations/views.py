@@ -28,6 +28,9 @@ from apps.jobs.models import JobRequest
 from apps.jobs.summary import matching_summary, privacy_warnings
 from apps.jobs.views import job_payload, own_jobs
 
+from apps.bookings.errors import InvitationBooked
+from apps.bookings.services import booking_for_invitation, booking_for_job
+
 from . import matching
 from .models import Invitation
 
@@ -55,6 +58,12 @@ class InvitationActive(ApiError):
     default_detail = "This request already has an active invitation. Withdraw it before inviting someone else."
 
 
+class JobBooked(ApiError):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "job_already_booked"
+    default_detail = "This request is already booked."
+
+
 class InvitationClosed(ApiError):
     status_code = status.HTTP_409_CONFLICT
     default_code = "invitation_closed"
@@ -69,6 +78,16 @@ def shared_view(summary: dict) -> dict:
     return {key: value for key, value in summary.items() if key != "id"}
 
 
+def _booking_link(invitation: Invitation) -> dict | None:
+    from apps.bookings.models import Booking
+
+    booking = invitation.bookings.order_by("-created_at").first() if invitation.pk else None
+    if booking is None:
+        return None
+    return {"id": str(booking.id), "status": booking.status} if booking.status != Booking.Status.CANCELLED or \
+        invitation.status == Invitation.Status.CANCELLED else None
+
+
 def customer_invitation_payload(invitation: Invitation) -> dict:
     profile = invitation.worker_profile
     return {
@@ -79,6 +98,7 @@ def customer_invitation_payload(invitation: Invitation) -> dict:
         "seen_at": invitation.seen_at.isoformat() if invitation.seen_at else None,
         "closed_at": invitation.closed_at.isoformat() if invitation.closed_at else None,
         "decline_reason": invitation.decline_reason or None,
+        "booking": _booking_link(invitation),
     }
 
 
@@ -90,6 +110,7 @@ def worker_invitation_payload(invitation: Invitation) -> dict:
         "seen_at": invitation.seen_at.isoformat() if invitation.seen_at else None,
         "closed_at": invitation.closed_at.isoformat() if invitation.closed_at else None,
         "decline_reason": invitation.decline_reason or None,
+        "booking": _booking_link(invitation),
         # Only the shareable summary: no address, access notes, photos, recordings or customer identity.
         "job": shared_view(invitation.shared_summary),
     }
@@ -152,6 +173,9 @@ def send_invitation(job_id, customer, worker_id) -> tuple[Invitation, bool]:
             raise NotFound()
         if job.status != JobRequest.Status.CONFIRMED:
             raise NotConfirmed()
+        booked = booking_for_job(job.pk)
+        if booked is not None:  # M8: a booked request takes no new invitations
+            raise JobBooked(details={"booking_id": str(booked.id)})
         active = job.invitations.filter(status=Invitation.Status.ACTIVE).first()
         if active is not None:
             if str(active.worker_profile_id) == str(worker_id):
@@ -215,7 +239,10 @@ class WithdrawView(APIView):
             )
             if invitation is None:
                 raise NotFound()
-            if invitation.status == Invitation.Status.DECLINED:
+            booked = booking_for_invitation(invitation.pk)
+            if booked is not None:  # M8: cancel through the booking instead
+                raise InvitationBooked(details={"booking_id": str(booked.id)})
+            if invitation.status in (Invitation.Status.DECLINED, Invitation.Status.CANCELLED):
                 raise InvitationClosed()
             if invitation.status == Invitation.Status.ACTIVE:
                 invitation.status = Invitation.Status.WITHDRAWN
@@ -310,7 +337,10 @@ class DeclineView(APIView):
             invitation = _own_invitations(request).select_for_update().filter(pk=invitation_id).first()
             if invitation is None:
                 raise NotFound()
-            if invitation.status == Invitation.Status.WITHDRAWN:
+            booked = booking_for_invitation(invitation.pk)
+            if booked is not None:  # M8: cancel through the booking instead
+                raise InvitationBooked(details={"booking_id": str(booked.id)})
+            if invitation.status in (Invitation.Status.WITHDRAWN, Invitation.Status.CANCELLED):
                 raise InvitationClosed()
             if invitation.status == Invitation.Status.ACTIVE:
                 invitation.status = Invitation.Status.DECLINED

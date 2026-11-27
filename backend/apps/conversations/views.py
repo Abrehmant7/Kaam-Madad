@@ -27,7 +27,7 @@ from apps.accounts.serializers import StrictFieldsMixin
 from apps.accounts.throttles import ConfigurableRateThrottle
 from apps.core.api.exceptions import ApiError
 from apps.invitations.models import Invitation
-from apps.invitations.views import shared_view
+from apps.invitations.views import _booking_link, shared_view
 from apps.jobs.models import JobRequest
 from apps.voice.models import AudioClip, Purpose, Transcription
 
@@ -113,6 +113,19 @@ def require_active(invitation: Invitation) -> None:
         raise ConversationClosed()
 
 
+class JobBooked(ApiError):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "job_already_booked"
+    default_detail = "This quote was accepted and booked. Change the booking instead."
+
+
+def require_not_booked(invitation: Invitation) -> None:
+    """M8: once a quote is accepted, quotes and their approval records stay as they were (messages continue)."""
+    booking = rules.active_booking(invitation)
+    if booking is not None:
+        raise JobBooked(details={"booking_id": str(booking.id)})
+
+
 # --- Payloads -------------------------------------------------------------------------------------------------
 
 
@@ -129,6 +142,7 @@ def header_payload(invitation: Invitation, role: str) -> dict:
         "job": shared_view(invitation.shared_summary),
         # Only the owner gets the request ID (for the link back to their request); the worker never does.
         "job_id": str(invitation.job_id) if role == "customer" else None,
+        "booking": _booking_link(invitation),
         # The customer sees the worker's opaque reference; the worker never sees the customer's identity.
         "counterpart": {"role": "worker", "worker_id": str(profile.id), "trade": profile.trade.code if profile.trade else None}
         if role == "customer" else {"role": "customer"},
@@ -166,6 +180,14 @@ def _money(value):
     return str(value) if value is not None else None
 
 
+def _check_payload(quote: Quote, now) -> dict:
+    effective = rules.effective_check_status(quote, now)
+    stalled = effective != quote.check_status  # "running" for too long: shown as "could not run"
+    return {"status": effective, "provider": quote.check_provider or None, "simulated": quote.check_simulated,
+            "checked_at": _iso(quote.checked_at), "started_at": _iso(quote.check_started_at),
+            "failure": "stalled" if stalled else (quote.check_failure.split(":")[0] if quote.check_failure else None)}
+
+
 def quote_payload(quote: Quote, now=None) -> dict:
     now = now or timezone.now()
     draft = quote.status == Quote.Status.DRAFT
@@ -191,9 +213,7 @@ def quote_payload(quote: Quote, now=None) -> dict:
         "superseded_at": _iso(quote.superseded_at),
         "expires_at": _iso(quote.expires_at),
         "expired": bool(quote.expires_at and now >= quote.expires_at),
-        "check": {"status": quote.check_status, "provider": quote.check_provider or None, "simulated": quote.check_simulated,
-                  "checked_at": _iso(quote.checked_at),
-                  "failure": quote.check_failure.split(":")[0] if quote.check_failure else None},
+        "check": _check_payload(quote, now),
         "manual_review_at": _iso(quote.manual_review_at),
         "findings": [finding_payload(f) for f in quote.findings.all()],
         "issues": {name: [code for code, _ in items] for name, items in rules.validate(quote, now).items()} if draft else {},
@@ -382,6 +402,7 @@ class QuoteDraftView(APIView):
             if role != "worker":
                 raise WorkerOnly()
             require_active(invitation)
+            require_not_booked(invitation)
             draft = invitation.quotes.select_for_update().filter(status=Quote.Status.DRAFT).first() or Quote(invitation=invitation)
             for name, value in serializer.validated_data.items():
                 setattr(draft, name, value)
@@ -393,6 +414,7 @@ class QuoteDraftView(APIView):
             invitation, role = participation(request, invitation_id, lock=True)
             if role != "worker":
                 raise WorkerOnly()
+            require_not_booked(invitation)
             invitation.quotes.filter(status=Quote.Status.DRAFT).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -406,6 +428,7 @@ def submit_draft(invitation_id, user) -> Quote:
         JobRequest.objects.select_for_update().get(pk=invitation.job_id)            # 1. job (M6 order)
         invitation = Invitation.objects.select_for_update().get(pk=invitation_id)  # 2. invitation, re-read
         require_active(invitation)
+        require_not_booked(invitation)  # accept vs revision: whoever locks the job first wins
         draft = invitation.quotes.select_for_update().filter(status=Quote.Status.DRAFT).first()
         if draft is None:
             raise NoDraft()
@@ -478,9 +501,10 @@ class QuoteCheckView(APIView):
     def post(self, request, invitation_id, quote_id):
         invitation, _, quote = _current_quote_for(request, invitation_id, quote_id)
         require_active(invitation)
+        require_not_booked(invitation)
         if quote.status != Quote.Status.SUBMITTED:
             raise QuoteNotCurrent()
-        if quote.check_status not in (Quote.CheckStatus.NOT_RUN, Quote.CheckStatus.UNAVAILABLE):
+        if rules.effective_check_status(quote) not in (Quote.CheckStatus.NOT_RUN, Quote.CheckStatus.UNAVAILABLE):
             raise CheckNotNeeded()
         rules.run_ai_check(quote)
         quote.refresh_from_db()
@@ -506,6 +530,7 @@ class FindingResolveView(APIView):
         with transaction.atomic():
             invitation, role, quote = _current_quote_for(request, invitation_id, quote_id, lock=True)
             require_active(invitation)
+            require_not_booked(invitation)
             if quote.status != Quote.Status.SUBMITTED:
                 raise QuoteNotCurrent()
             finding = quote.findings.select_for_update().filter(pk=finding_id).first()
@@ -534,9 +559,10 @@ class ManualReviewView(APIView):
             if role != "customer":
                 raise CustomerOnly()
             require_active(invitation)
+            require_not_booked(invitation)
             if quote.status != Quote.Status.SUBMITTED:
                 raise QuoteNotCurrent()
-            if quote.check_status != Quote.CheckStatus.UNAVAILABLE:
+            if rules.effective_check_status(quote) != Quote.CheckStatus.UNAVAILABLE:
                 raise CheckNotNeeded()
             if quote.manual_review_at is None:
                 quote.manual_review_by, quote.manual_review_at = request.user, timezone.now()

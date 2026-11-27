@@ -33,6 +33,7 @@ api_v1_patterns = [
     path("jobs/", include(invitation_urls.customer_patterns)),
     path("invitations/", include(invitation_urls.worker_patterns)),
     path("conversations/", include("apps.conversations.urls")),
+    path("bookings/", include("apps.bookings.urls")),
 ]
 
 urlpatterns = [

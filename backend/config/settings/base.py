@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",  # exclusion constraint (no overlapping bookings per worker)
     "rest_framework",
     "apps.core",
     "apps.accounts",
@@ -56,6 +57,7 @@ INSTALLED_APPS = [
     "apps.jobs",
     "apps.invitations",
     "apps.conversations",
+    "apps.bookings",
 ]
 
 # --------------------------------------------------------------------------
@@ -119,6 +121,8 @@ AGREEMENT_CHECK_PROVIDER = env_choice("AGREEMENT_CHECK_PROVIDER", {"fixture", "g
 GEMINI_AGREEMENT_MODEL = env_str("GEMINI_AGREEMENT_MODEL", GEMINI_INTERPRETATION_MODEL)
 # Output budget including the model's reasoning; 1500 was too small for gemini-3 models (truncated JSON).
 GEMINI_AGREEMENT_MAX_TOKENS = env_int("GEMINI_AGREEMENT_MAX_TOKENS", 6000, minimum=1000)
+# A check still "running" after this many seconds is treated as "could not run" (its process may have died).
+AGREEMENT_CHECK_STALE_SECONDS = env_int("AGREEMENT_CHECK_STALE_SECONDS", 180, minimum=30)
 # Quotations (M7, QT-03): a submitted version expires after this many hours or at its start time, whichever is first.
 QUOTE_VALIDITY_HOURS = env_int("QUOTE_VALIDITY_HOURS", 24, minimum=1)
 
@@ -319,6 +323,9 @@ API_THROTTLE_RATES = {
     "job_photo_user": "60/hour",
     "invitation_user": "120/hour",
     "conversation_user": "600/hour",
+    "booking_user": "300/hour",
+    "arrival_code_issue_user": "10/hour",
+    "arrival_code_verify_user": "20/hour",
 }
 
 # --------------------------------------------------------------------------
@@ -352,3 +359,9 @@ LOGGING = {
         "apps": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
     },
 }
+
+# --------------------------------------------------------------------------
+# Bookings and arrival codes (M8, BK-04)
+# --------------------------------------------------------------------------
+ARRIVAL_CODE_TTL_MINUTES = env_int("ARRIVAL_CODE_TTL_MINUTES", 15, minimum=1)
+ARRIVAL_CODE_MAX_ATTEMPTS = env_int("ARRIVAL_CODE_MAX_ATTEMPTS", 5, minimum=1)

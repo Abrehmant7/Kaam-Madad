@@ -6,7 +6,8 @@ identity the M7 conversation will hang off. States:
 - ``active``    — sent and open (at most ONE per request: partial unique index, plus a row lock on
                   the request when sending, so concurrent sends cannot create two);
 - ``declined``  — closed by the worker;
-- ``withdrawn`` — closed by the customer.
+- ``withdrawn`` — closed by the customer;
+- ``cancelled`` — closed because the booking made from it was cancelled (M8).
 
 Closed invitations are kept as history; inviting again (even the same worker) creates a NEW
 invitation with a new ID. An invitation never reserves time or confirms a booking (M8).
@@ -33,6 +34,7 @@ class Invitation(models.Model):
         ACTIVE = "active", _("Active")
         DECLINED = "declined", _("Declined by the worker")
         WITHDRAWN = "withdrawn", _("Withdrawn by the customer")
+        CANCELLED = "cancelled", _("Closed: the booking was cancelled")  # M8: its quote can never be reused
 
     class DeclineReason(models.TextChoices):
         NOT_AVAILABLE = "not_available", _("Not available at that time")

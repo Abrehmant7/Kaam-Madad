@@ -228,10 +228,10 @@ class QuoteTests(ConversationTestCase):
         quote = self.submit().json()
         finding = quote["findings"][0]
         empty = self.customer.post(self.url("conversation-finding-resolve", quote["id"], finding["id"]),
-                                   {"resolution": "not_a_conflict", "note": ""}, format="json")
+                                   {"resolution": "terms_confirmed", "note": ""}, format="json")
         self.assertEqual(empty.status_code, 400)  # never dismissed without explicit terms
         resolved = self.customer.post(self.url("conversation-finding-resolve", quote["id"], finding["id"]),
-                                      {"resolution": "not_a_conflict", "note": "میں سامان خود خریدوں گا۔ صرف لیبر 1200۔"},
+                                      {"resolution": "terms_confirmed", "note": "میں سامان خود خریدوں گا۔ صرف لیبر 1200۔"},
                                       format="json").json()
         stored = resolved["findings"][0]
         self.assertEqual((stored["status"], stored["resolved_role"]), ("resolved", "customer"))

@@ -92,6 +92,7 @@ class Quote(models.Model):
 
     class CheckStatus(models.TextChoices):
         NOT_RUN = "not_run", _("Not run")
+        RUNNING = "running", _("Running")
         PASSED = "passed", _("No possible conflicts found")
         FINDINGS = "findings", _("Possible conflicts found")
         UNAVAILABLE = "unavailable", _("Automated check could not run")
@@ -128,6 +129,9 @@ class Quote(models.Model):
     check_simulated = models.BooleanField(default=False)
     checked_at = models.DateTimeField(null=True, blank=True)
     check_failure = models.CharField(max_length=64, blank=True, default="")
+    # Each run gets a new attempt ID; a result is saved only if its attempt is still the current one (M8).
+    check_attempt = models.UUIDField(null=True, blank=True)
+    check_started_at = models.DateTimeField(null=True, blank=True)
     manual_review_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     manual_review_at = models.DateTimeField(null=True, blank=True)
 
@@ -170,8 +174,11 @@ class GapFinding(models.Model):
         RESOLVED = "resolved", _("Resolved")
 
     class Resolution(models.TextChoices):
-        CLARIFIED = "clarified", _("Clarified")
-        NOT_A_CONFLICT = "not_a_conflict", _("Not a conflict (terms confirmed)")
+        # The quote as written is what both mean: this version can go ahead.
+        TERMS_CONFIRMED = "terms_confirmed", _("Existing quote terms confirmed")
+        # The clarification changed price, scope, materials or timing: this version stays blocked until the
+        # worker submits a revised quote (M8 fix of the M7 hand-off).
+        TERMS_CHANGED = "terms_changed", _("Terms changed (revised quote needed)")
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     quote = models.ForeignKey(Quote, on_delete=models.CASCADE, related_name="findings")
