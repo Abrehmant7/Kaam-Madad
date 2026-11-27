@@ -21,6 +21,7 @@ const card = (id: string, speciality = true) => ({
   worker_id: id, display_label: null, trade: "electrician", services_matched: ["elec_fan_install"],
   specialities_matched: speciality ? ["elec_fan_install"] : [], serves_selected_area: true,
   verification: { status: "demo_approved", simulated: true }, is_new: true, previous_invitation: null,
+  history: { completed_jobs: 0, relevant_jobs: 0, review_count: 0, average_rating: null },
   reasons: speciality
     ? [{ code: "speciality", services: ["elec_fan_install"] }, { code: "serves_area", area: "isb-g-9" }]
     : [{ code: "offers", services: ["elec_fan_install"] }, { code: "serves_area", area: "isb-g-9" }],

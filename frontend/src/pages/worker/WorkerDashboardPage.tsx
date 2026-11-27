@@ -12,6 +12,7 @@ import { Button, ButtonLink } from "../../components/ui/Button";
 import { PageLoader } from "../../components/ui/PageLoader";
 import { StatusBadge, type BadgeTone } from "../../components/ui/StatusBadge";
 import { BookingList } from "../../features/bookings/BookingList";
+import { WorkerFeedback } from "../../features/bookings/WorkerFeedback";
 import { InvitationInbox } from "../../features/invitations/InvitationInbox";
 import { PhoneConfirmationBadge } from "../../features/phone/PhoneConfirmationStatus";
 import { label, LoadError, onboardingPath, useLoad } from "../../features/worker/shared";
@@ -127,6 +128,7 @@ export function WorkerDashboardPage() {
 
       <BookingList />
       <InvitationInbox />
+      <WorkerFeedback />
 
       <Card id="identity-heading" title={t("worker.identity.heading")} icon={<IdCard className="size-5" aria-hidden />}>
         <div className="flex flex-wrap items-center gap-2">

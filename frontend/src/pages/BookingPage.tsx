@@ -15,6 +15,8 @@ import { ArrivalPanel } from "../features/bookings/ArrivalPanel";
 import { STATUS_TONE } from "../features/bookings/BookingList";
 import { CancelPanel } from "../features/bookings/CancelPanel";
 import { ChangesPanel } from "../features/bookings/ChangesPanel";
+import { CompletionPanel } from "../features/bookings/CompletionPanel";
+import { ReviewPanel } from "../features/bookings/ReviewPanel";
 import { TermsRows } from "../features/conversations/QuotePanel";
 import { quoteSpeech } from "../features/conversations/quoteText";
 import { SharedJob } from "../features/invitations/SharedJob";
@@ -27,7 +29,7 @@ import { isTranslationKey, useI18n } from "../i18n/context";
 import { describeError } from "../i18n/errors";
 
 const POLL_MS = 10000;
-const STEPS = ["confirmed", "arrived", "in_progress"] as const;
+const STEPS = ["confirmed", "arrived", "in_progress", "completion_requested", "completed"] as const;
 
 /** Load the booking and refresh it quietly (the other person may act meanwhile); typed input is never reset. */
 function useBooking(id: string) {
@@ -55,14 +57,14 @@ function useBooking(id: string) {
 
 function Steps({ status }: { status: bookingsApi.BookingStatus }) {
   const { t } = useI18n();
-  const reached = STEPS.indexOf(status as (typeof STEPS)[number]);
+  const reached = status === "disputed" ? STEPS.indexOf("completion_requested") : STEPS.indexOf(status as (typeof STEPS)[number]);
   return (
-    <ol className="grid grid-cols-3 gap-2 text-center text-sm" aria-label={t("booking.stepsLabel")}>
+    <ol className="grid grid-cols-5 gap-1 text-center text-xs" aria-label={t("booking.stepsLabel")}>
       {STEPS.map((step, index) => (
-        <li key={step} className={`flex flex-col items-center gap-1 rounded-xl p-2 ${index <= reached ? "bg-primary/10 font-bold text-primary" : "text-muted"}`}
+        <li key={step} className={`flex flex-col items-center gap-1 rounded-xl p-1.5 ${index <= reached ? "bg-primary/10 font-bold text-primary" : "text-muted"}`}
           aria-current={index === reached ? "step" : undefined}>
           {index <= reached ? <CircleCheck className="size-5" aria-hidden /> : <Circle className="size-5" aria-hidden />}
-          {t(`booking.status.${step}`)}
+          {t(`booking.step.${step}`)}
         </li>
       ))}
     </ol>
@@ -139,10 +141,12 @@ export function BookingPage() {
           {booking.cancel_note && <p dir={textDir(booking.cancel_note)}>“{booking.cancel_note}”</p>}
           <p className="mt-1 text-sm">{t("booking.cancelledNext")}</p>
         </Alert>
-      ) : (
+      ) : booking.status !== "closed" ? (
         <Steps status={booking.status} />
+      ) : null}
+      {booking.status === "in_progress" && !booking.staff_outcome && (
+        <Alert tone="success" title={t("booking.inProgressTitle")}>{t("booking.inProgressBody")}</Alert>
       )}
-      {booking.status === "in_progress" && <Alert tone="success" title={t("booking.inProgressTitle")}>{t("booking.inProgressBody")}</Alert>}
 
       <section className="space-y-1 rounded-2xl border border-line bg-white p-4">
         <h2 className="text-sm text-muted">{t("booking.when")}</h2>
@@ -161,6 +165,8 @@ export function BookingPage() {
       )}
 
       <ArrivalPanel booking={booking} act={act} busy={busy} />
+      <CompletionPanel booking={booking} act={act} busy={busy} />
+      <ReviewPanel booking={booking} onDone={reload} />
 
       <section aria-labelledby="terms-heading" className="space-y-3">
         <h2 id="terms-heading" className="text-lg font-bold">{t("booking.terms")}</h2>
@@ -184,7 +190,7 @@ export function BookingPage() {
         </details>
       </section>
 
-      {booking.status !== "cancelled" && <ChangesPanel booking={booking} act={act} busy={busy} />}
+      {(booking.actions.propose_change || booking.changes.length > 0) && <ChangesPanel booking={booking} act={act} busy={busy} />}
       <CancelPanel booking={booking} act={act} busy={busy} />
 
       <section aria-labelledby="history-heading" className="space-y-2">
@@ -193,7 +199,7 @@ export function BookingPage() {
           {booking.history.map((event, index) => (
             <li key={`${event.kind}-${index}`} className="rounded-lg bg-white p-2">
               <span className="font-bold">{t(`booking.event.${event.kind}`)}</span>
-              {event.actor_role && <span> · {t(`conv.role.${event.actor_role}`)}</span>}
+              {event.actor_role && <span> · {t(`booking.actor.${event.actor_role}`)}</span>}
               <span className="block text-muted">{formatDate(event.at, language)} <bdi dir="ltr">{formatTime(event.at, language)}</bdi></span>
             </li>
           ))}

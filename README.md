@@ -10,12 +10,16 @@ using Urdu text, spoken instructions, recognisable icons and guided choices.
 
 Built for the Capital Youth Expo, Track 5 — Urdu & Regional Tech.
 
-> **Status: Modules M1–M8 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
+> **Status: Modules M1–M9 complete** (foundation; accounts, language, catalog; audio and AI adapters; worker
 > onboarding and identity check; customer job requests; recommendations and invitations; private conversations
-> and quotations; acceptance, booking and arrival). Customers describe a job and invite a matching worker. The
-> two talk privately, and the worker sends a structured quote. Contradictions are clarified, then the customer
-> accepts a specific version, which books the worker. On the day the worker enters the customer's one-time
-> arrival code, and the job moves to "In progress". Completion, reviews and reports are **not** implemented yet.
+> and quotations; acceptance, booking and arrival; completion, disputes and reviews).
+> - A customer describes a job, invites a matching worker, agrees a structured quote and books the worker.
+> - On the day the worker enters the customer's one-time arrival code. When the work is done, the worker asks
+>   the customer to confirm.
+> - The customer confirms and leaves one review, or raises an issue for staff.
+> - Confirmed work and visible ratings then shape future recommendations.
+>
+> Misconduct reports (M10) are **not** implemented yet.
 > See [docs/progress.md](docs/progress.md).
 
 - Requirements: [docs/requirements.md](docs/requirements.md)
@@ -192,7 +196,8 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 | Recommendations and invitations | **Implemented** (M6): rule-based matching with reasons, one active invitation per request |
 | Conversations, quotations, agreement check | **Implemented** (M7): private text and voice-note messages, structured versioned quotes, agreement check (Gemini or a labelled demo fixture) |
 | Acceptance, bookings, arrival codes | **Implemented** (M8): booking from an accepted quote, no double-booking, one-time arrival code, cancellation and changes |
-| Completion, reviews, reports | Not implemented (M9–M10) |
+| Completion, disputes, reviews | **Implemented** (M9): customer-confirmed completion, staff dispute outcome in Django Admin, one review per completed job (typed or voice draft), work history in recommendations |
+| Misconduct reports | Not implemented (M10) |
 
 ## 6. Voice and AI (M3)
 
@@ -547,7 +552,43 @@ create it.
   - 15 minutes, 5 wrong attempts, rate-limited.
   - A code confirms arrival for this booking only. It is not an identity, location, skills or safety check.
 
-## 12. Checks and tests
+## 12. Completion, disputes and reviews (M9)
+
+After pulling, from `backend/`: `python manage.py migrate` (adds the `reviews` app and the new booking states).
+
+### Demo: complete, review, see the history
+
+1. Take a booking to **In progress** (§11).
+2. **Worker:** on the booking, tap **Ask the customer to confirm completion / گاہک سے تکمیل کی تصدیق مانگیں**.
+   - If a change is still waiting for a decision, the button is disabled with an explanation. Decide or withdraw
+     the change first.
+3. **Customer:** the booking shows **Is the work done as agreed?**
+   - **Yes, confirm completion** marks it completed and frees the worker's time.
+   - Then **How was the work?** asks for 1–5 stars and an optional text. Under **Say it instead of typing**,
+     record or upload a voice note and tap **Write it down for me**. Check and edit the Urdu draft, then **Send
+     review**. There is one review per job.
+4. **Worker dashboard:** **My bookings** is grouped into awaiting confirmation, issues, booked and in progress,
+   completed, and cancelled or closed. **My work history** shows completed jobs, the rating with its review count,
+   and each job's feedback.
+5. **Recommendations:** the customer creates a new request for the same service and opens **Find a worker**.
+   - The worker's card now says how many confirmed jobs included that service, with the rating and count.
+   - The worker ranks above otherwise equal workers. Workers without reviews show "No reviews yet", not a zero.
+
+### Demo: an issue instead of confirmation (staff outcome)
+
+1. At step 3, choose **No, there is an issue**, pick a reason and write a short note. The booking becomes
+   **Issue raised**.
+   - The worker stays booked and cannot start another job, even after the planned end.
+2. **Staff:**
+   - Create a staff account with `python manage.py createsuperuser`, or give a staff user the
+     "Can record the outcome of a booking dispute" permission.
+   - Open `/admin/` → Bookings → the booking → **Record dispute outcome**. Choose **Returned to in progress** or
+     **Closed without confirmed completion** and give a reason.
+   - A closed booking frees the worker, does not count as completed work, and cannot be reviewed.
+3. **Hiding a review:** `/admin/` → Reviews → a review → **Hide review…** with a reason. This needs the
+   "Can hide an abusive review" permission. The text is kept; the worker's rating and count update.
+
+## 13. Checks and tests
 
 ```bash
 # Backend (from backend/, venv active) — runs against a real PostgreSQL test database
@@ -568,7 +609,7 @@ curl http://localhost:5173/api/v1/health/live/    # {"status":"ok"}
 curl http://localhost:5173/api/v1/health/ready/   # {"status":"ok","checks":{"database":"ok"}} or 503
 ```
 
-## 13. Production-like local run (same origin)
+## 14. Production-like local run (same origin)
 
 Builds the frontend and lets Django serve everything on one port, with production settings
 (HTTPS redirect disabled only because this local test uses plain HTTP):

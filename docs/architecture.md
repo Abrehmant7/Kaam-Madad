@@ -820,3 +820,76 @@ An authorised booking in `in_progress`: `accepted_terms`, `terms` in effect, app
 - Add the disputed and completion-requested states to `Booking.RESERVING` and to the exclusion and
   one-started conditions, so the reservation holds until the outcome.
 - Completion should use the same lock order.
+
+## 15. Module M9 — completion, disputes and feedback
+
+API contracts: [api.md § Completion, disputes and reviews](api.md#completion-disputes-and-reviews-m9).
+
+### State machine (extends §14)
+
+`in_progress → completion_requested → completed | disputed`. A dispute then goes to `in_progress` (staff:
+return to work) or `closed` (staff: close without confirmed completion).
+
+The `Booking` status lists in the model drive both the services and the database:
+- `RESERVING`: confirmed, arrived, in_progress, completion_requested, disputed. This is the condition of the
+  `booking_no_worker_overlap` exclusion constraint.
+- `ACTIVE_JOB`: in_progress, completion_requested, disputed. This is the condition of
+  `booking_one_started_per_worker` and of the start check, so a worker whose job awaits confirmation or is
+  disputed cannot start another one, whatever the planned times.
+- `CHANGEABLE`: confirmed, arrived, in_progress. Terms freeze while completion or a dispute is pending.
+
+`booking_status_has_times` requires the matching timestamps and reasons for each new state.
+
+### Services
+
+- `request_completion`, `confirm_completion` and `raise_issue` lock job → worker → booking and re-check the
+  status under the lock. A repeated action returns early, with no second `BookingEvent`. A confirm/dispute race
+  resolves to exactly one winner; a PostgreSQL thread test runs it three times.
+- `request_completion` refuses while a change is pending (`change_open`), so the customer always confirms the
+  final terms.
+- `confirm_completion` copies the request's service tags into `Booking.completed_services`. This is the only
+  source of work history, so no tags are inferred from text and no profile-wide credit is given.
+- `staff_resolve` checks `is_staff` and `bookings.resolve_dispute` itself, not only the Admin view. It records the
+  outcome, reason, staff user and time, and emits `staff_resolved` with actor role `staff`. `close` also closes
+  the invitation.
+
+### Reviews (`apps/reviews`)
+
+- **`Review`:**
+  - booking (`review_one_per_booking`), customer, worker profile, rating (`review_rating_1_to_5`), approved
+    `text`, source;
+  - the original `audio_clip` and the transcription proposal `interpreted_text`, kept separately;
+  - `services` copied from `completed_services`;
+  - hide fields, with `review_hidden_has_reason`.
+- **`submit_review`** locks the booking. It returns an existing review unchanged (repeat-safe), allows only
+  `completed`, and has an `IntegrityError` backstop. Voice clips use the M3 audio store with purpose `review`.
+- **`hide_review`** checks `reviews.hide_review`. Text is never rewritten.
+
+### Aggregates and ranking
+
+`apps.reviews.services.worker_stats(profile_ids, requested_services)` runs **two grouped queries** for any number
+of workers:
+- completed bookings per worker, with a filtered count of those whose `completed_services` include a requested
+  service;
+- visible reviews per worker (count and sum), counting only reviews on completed bookings that are not hidden.
+
+`WorkerStats.average` is `None` without reviews. `ranking_rating` smooths the rating with a neutral prior (3.0,
+weight 2).
+
+`matching.recommend` keeps M6's filters unchanged. The ranking key is (specialities, relevant completed jobs,
+smoothed rating, review count, worker UUID). Cards gain `history`, a `completed_jobs` reason, and an `is_new` that
+is true until the first confirmed job.
+
+### Admin
+
+Both apps stay read-only in Admin, plus one form view each:
+- `bookings/<id>/resolve-dispute/` with `bookings.resolve_dispute`;
+- `reviews/<id>/hide/` with `reviews.hide_review`.
+
+Without the permission these return `403`. Arrival-code digests and idempotency keys stay excluded.
+
+### M10 hand-off
+
+Reports (REP-01..03) should attach to an invitation or booking and use the same participant checks (`role_in`).
+Account restrictions should reuse `worker_eligibility`. Dispute outcomes are already audited on the booking and
+can be referenced from a report case.

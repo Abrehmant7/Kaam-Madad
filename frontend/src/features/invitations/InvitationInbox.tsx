@@ -32,7 +32,11 @@ export function InvitationInbox() {
               {inbox.results.map((item) => (
                 <li key={item.id} className="space-y-1 rounded-xl border border-line p-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <StatusBadge tone={item.status === "active" ? "info" : "neutral"}>{t(`inv.status.${item.status}`)}</StatusBadge>
+                    {item.booking && item.booking.status !== "cancelled" ? (
+                      <StatusBadge tone="success">{t(`booking.status.${item.booking.status}`)}</StatusBadge>
+                    ) : (
+                      <StatusBadge tone={item.status === "active" ? "info" : "neutral"}>{t(`inv.status.${item.status}`)}</StatusBadge>
+                    )}
                     <span className="font-bold">
                       {label.trade(item.job.trade)}: {item.job.services.map(label.service).join(language === "ur" ? "، " : ", ")}
                     </span>

@@ -9,6 +9,7 @@ import { Button, ButtonLink } from "../../components/ui/Button";
 import { PageLoader } from "../../components/ui/PageLoader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { TextArea } from "../../components/ui/TextArea";
+import { Stars } from "../../features/bookings/ReviewPanel";
 import { SharedJob } from "../../features/invitations/SharedJob";
 import { type JobCatalog, labeller, loadJobCatalog } from "../../features/jobs/catalog";
 import { textDir } from "../../features/jobs/text";
@@ -180,9 +181,21 @@ function Workers({ jobId, recs, catalog, history, reload }: {
                         {reason.code === "speciality" && t("rec.reason.speciality", { services: services(reason.services) })}
                         {reason.code === "offers" && t("rec.reason.offers", { services: services(reason.services) })}
                         {reason.code === "serves_area" && t("rec.reason.servesArea", { area: label.area(reason.area) })}
+                        {reason.code === "completed_jobs" && t("rec.reason.completedJobs", { count: reason.count, services: services(reason.services) })}
                       </li>
                     ))}
                   </ul>
+                  <p className="flex flex-wrap items-center gap-2 text-sm">
+                    {card.history.average_rating !== null ? (
+                      <>
+                        <Stars rating={Math.round(Number(card.history.average_rating))} />
+                        <span>{t("rec.rating", { rating: card.history.average_rating, count: card.history.review_count })}</span>
+                      </>
+                    ) : (
+                      <span className="text-muted">{t("rec.noReviews")}</span>
+                    )}
+                    {card.history.completed_jobs > 0 && <span>· {t("rec.completedTotal", { count: card.history.completed_jobs })}</span>}
+                  </p>
                   {card.is_new && <p className="text-sm text-muted">{t("rec.newNote")}</p>}
                   {card.previous_invitation === "declined" && <p className="text-sm text-muted">{t("rec.previous.declined")}</p>}
                   {card.previous_invitation === "withdrawn" && <p className="text-sm text-muted">{t("rec.previous.withdrawn")}</p>}

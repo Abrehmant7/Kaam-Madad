@@ -4,7 +4,10 @@ import type { JobRequest } from "./jobs";
 
 export type InvitationStatus = "active" | "declined" | "withdrawn" | "cancelled";
 /** M8: the booking made from an invitation (its quote was accepted). */
-export interface BookingLink { id: string; status: "confirmed" | "arrived" | "in_progress" | "cancelled" }
+export interface BookingLink {
+  id: string;
+  status: "confirmed" | "arrived" | "in_progress" | "completion_requested" | "completed" | "disputed" | "closed" | "cancelled";
+}
 export type DeclineReason = "not_available" | "too_far" | "not_my_work" | "other";
 
 /** What a worker may see about a request (no address, access notes, photos, recordings or customer identity). */
@@ -24,7 +27,8 @@ export interface SharedSummary {
 export type MatchReason =
   | { code: "speciality"; services: string[] }
   | { code: "offers"; services: string[] }
-  | { code: "serves_area"; area: string };
+  | { code: "serves_area"; area: string }
+  | { code: "completed_jobs"; count: number; services: string[] };
 
 export interface WorkerCard {
   worker_id: string;
@@ -37,6 +41,8 @@ export interface WorkerCard {
   is_new: boolean;
   reasons: MatchReason[];
   previous_invitation: InvitationStatus | null;
+  /** M9: from customer-confirmed completed jobs and visible reviews. average_rating is null when unrated. */
+  history: { completed_jobs: number; relevant_jobs: number; review_count: number; average_rating: string | null };
 }
 
 export interface CustomerInvitation {

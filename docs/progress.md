@@ -18,9 +18,144 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M6 Recommendations and invitations | ✅ Complete (27 Nov 2026) |
 | M7 Communication and agreements | ✅ Complete (27 Nov 2026) — fixture walk-through; live Gemini agreement check verified with `gemini-3-flash-preview` |
 | M8 Booking and arrival | ✅ Complete (27 Nov 2026) — two-session walk-through with fixture AI; PostgreSQL concurrency tests |
-| M9 Completion and feedback | ⬜ Next |
-| M10 Reporting and moderation | ⬜ Not started |
+| M9 Completion and feedback | ✅ Complete (27 Nov 2026) — Urdu two-session walk-through with fixture AI; PostgreSQL race tests |
+| M10 Reporting and moderation | ⬜ Next |
 | M11 Integration and delivery | ⬜ Not started |
+
+---
+
+## M9 Completion, disputes and feedback — complete (27 Nov 2026)
+
+### Delivered
+
+- [x] **Completion:**
+  - The worker asks the customer to confirm, from `in_progress`. It is refused while a change is pending
+    (`change_open`), and the UI explains why.
+  - The customer confirms → `completed`: the reservation is released, and the booked catalog services are
+    recorded as completed.
+  - Or the customer raises an issue (reason and note) → `disputed`.
+  - The worker can never complete alone, and the booking stays pending until the customer answers.
+  - Every action is atomic and retry-safe with the M8 lock order. There are no duplicate events, and only one of
+    confirm or dispute can win.
+- [x] **Reservations:** `completion_requested` and `disputed` keep the reservation and count as the worker's
+  current job. The exclusion constraint, the one-started-job constraint and the start check were all extended,
+  so a second start is refused even after the planned end.
+- [x] **Terms freeze** while completion or a dispute is pending. The accepted snapshot, the change history and the
+  worker's accepting-requests preference are untouched.
+- [x] **Django Admin** (permission-checked): **Record dispute outcome**, either return to in progress or close
+  without confirmed completion, with a reason. Closing releases the worker, closes the invitation, never
+  unlocks a review and gives no work credit.
+- [x] **One review per completed booking:**
+  - 1–5 stars, an optional short text, and a voice draft (M3 capture and transcription, purpose `review`) that
+    the customer edits and approves. Typing works without speech.
+  - Repeat submissions return the stored review.
+  - Tied to the booked services confirmed as completed.
+  - Admin **Hide review** keeps the text, records a reason, and removes the review from the worker's view and
+    from ratings.
+- [x] **Dashboards:**
+  - Bookings are grouped (awaiting confirmation, issues, booked and in progress, completed, cancelled or closed),
+    with the next step for each role.
+  - The worker sees **My work history**: completed jobs, average rating with count, and feedback per job, with
+    no addresses or identities.
+  - The worker's invitation inbox shows the booking status instead of "Open invitation".
+- [x] **Recommendations:**
+  - M6 filters are unchanged. Ranking is speciality relevance, then relevant confirmed jobs, then a smoothed
+    visible rating, then review count, then UUID.
+  - Cards show "N confirmed jobs including …", the rating with count or "No reviews yet" (never zero), and "New
+    worker" until the first confirmed job.
+  - Two grouped queries serve the whole list.
+
+### Checks (27 Nov 2026)
+
+| Check | Result |
+|---|---|
+| Backend tests (real PostgreSQL) | ✅ **337 passed**: 14 new for M9, including a **PostgreSQL race test** (confirm vs dispute ×3, each with exactly one winner; a duplicate review race → one review) |
+| `check`, `makemigrations --check`, `migrate` | ✅ No issues; migrations `bookings.0002`, `voice.0004`, `reviews.0001` applied |
+| Frontend typecheck / tests / build | ✅ No errors / **94 passed** (6 new) / built |
+
+Backend tests cover:
+- **Completion:**
+  - request, a retry, and the worker cannot confirm;
+  - the customer confirms and a retry adds no duplicate events;
+  - both see `completed`, and the worker no longer sees the address;
+  - a paused worker stays paused, the snapshot is unchanged, and the worker can then start another job.
+- **Second starts:** blocked while awaiting confirmation (even 3 hours after the planned end) and while disputed.
+  Overlapping acceptances are still refused; after a staff close the start works.
+- **Terms:** an open change blocks the completion request; terms freeze afterwards.
+- **Disputes:**
+  - a note is required, and confirming after a dispute is refused;
+  - staff without the permission are refused;
+  - return to work, then close: no review, the invitation closes, and no work credit.
+- **Admin views:** both need their permission (anonymous → login, staff without the permission → 403), and
+  their effects and events are recorded.
+- **Reviews:**
+  - only after confirmed completion and only by the booking's customer (worker 403, stranger 404);
+  - the rating must be 1–5; a repeat returns the original; a cancelled booking cannot be reviewed;
+  - a voice review stores the proposal and the approved text, and the clip stays private;
+  - worker feedback contains no private data;
+  - hiding removes the review from the worker and from ratings.
+- **Recommendations:**
+  - confirmed work and a review lift a worker above an otherwise equal newcomer;
+  - the card has history and a `completed_jobs` reason, and the newcomer has rating `null`;
+  - hiding updates the count and rating but keeps the work count;
+  - a 1★ worker ranks below an unrated worker with the same experience;
+  - stats take two queries for five workers, and other services earn no credit.
+
+**Flaky run:** one earlier full backend run reported `setUpClass` errors in two accounts test classes (admin and
+CSRF). The same classes passed alone and in two later full runs (337/337); the cause was not identified.
+
+The first full frontend run after the M9 changes had 7 tests time out, all unrelated to M9. A re-run passed
+94/94, as did the final run after the last fixes.
+
+### Urdu walk-through (three Chrome sessions at 360 px, real backend and PostgreSQL, fixture AI)
+
+The rehearsal used a fresh fictional worker (03009990196), paused afterwards. The customer and worker both
+used Urdu.
+
+1. **Completion:** booking A was taken to In progress through the API. The worker tapped **گاہک سے تکمیل کی تصدیق
+   مانگیں** and saw "waiting for the customer". The customer saw **کیا کام طے شدہ شرائط کے مطابق ہو گیا؟** and
+   confirmed. Both then saw `completed`.
+2. **Voice review:**
+   - The recording became the editable draft "کاریگر وقت پر آئے، تینوں پنکھے صفائی سے لگائے…" (fixture
+     transcript). The customer added "شکریہ۔" and gave 5 stars.
+   - A second review attempt returned `200` with the stored 5★ review (`created: false`).
+3. **Worker dashboard:** **میرا کام** showed 1 completed job, 5.0, 1 review and the review text. The feedback API
+   contained no address.
+4. **New request, same service:** the rehearsal worker ranked first with "کام مدد پر 1 تصدیق شدہ کام مکمل کیے جن
+   میں شامل: چھت کے پنکھے کی تنصیب" and "5 میں سے 5.0 (1 ریویو)". The other five workers showed "نیا کاریگر" and
+   "ابھی کوئی ریویو نہیں" (rating `null`).
+5. **Dispute path:**
+   - On booking B the customer chose **نہیں، کوئی مسئلہ ہے** with a reason and note, and the booking became
+     disputed.
+   - Starting booking C for the same worker → `409`.
+   - Reviewing B → `409 review_not_allowed`.
+   - The worker dashboard grouped the booking under "مسائل".
+6. **Layouts:** no horizontal overflow on any of the 9 screens.
+
+### Issues found and fixed
+
+- The worker's invitation inbox still said "Open invitation" for booked or completed jobs, because the invitation
+  stays active after booking; it now shows the booking status.
+- Removed stale copy: the M4 "job requests come in a later version" line, and "reviews come later" in the M6
+  card note.
+- A warning icon on the "Completed" message was replaced (success state).
+
+### Known limitations
+
+- **Unanswered completion requests:** if the customer never responds, the booking stays awaiting confirmation
+  and the worker cannot start another job until staff act. There is no automatic timeout, by design (no
+  auto-completion).
+- **Staff tooling:** dispute outcomes and hiding are minimal Admin form views. There is no queue, messaging or
+  evidence handling; misconduct reports are M10.
+- **Changes after the job:** none. Once completed, the terms and the review are final; reviews cannot be edited
+  or replied to.
+- **Reruns of the walk-through:** the rehearsal workers (03009990196–0199) remain in the development database,
+  paused, and some are stuck in progress or disputed.
+
+### Next module
+
+**M10 Reporting and moderation:** reports linked to invitations and bookings (REP-01..03), staff decisions and
+restrictions, reusing participant checks and `worker_eligibility`.
 
 ---
 

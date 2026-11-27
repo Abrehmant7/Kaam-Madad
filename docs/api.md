@@ -1,7 +1,7 @@
 # Kaam Madad — API Contracts
 
 All endpoints are under `/api/v1/`, return JSON, and are served from the same origin as the web app.
-Implemented through **M8**. Planned endpoint families for later modules are listed in
+Implemented through **M9**. Planned endpoint families for later modules are listed in
 [requirements.md §10](requirements.md#10-api-contracts-and-screen-inventory) and are **not** implemented.
 
 ## Conventions
@@ -448,6 +448,7 @@ worker; anything else is `404`, and customers get `403 worker_role_required`.
               "services_matched": ["elec_fan_install"], "specialities_matched": ["elec_fan_install"],
               "serves_selected_area": true, "verification": {"status": "demo_approved", "simulated": true},
               "is_new": true, "previous_invitation": null,
+              "history": {"completed_jobs": 0, "relevant_jobs": 0, "review_count": 0, "average_rating": null},
               "reasons": [{"code": "speciality", "services": ["elec_fan_install"]},
                           {"code": "serves_area", "area": "isb-g-9"}]}],
  "active_invitation": null}
@@ -461,15 +462,25 @@ worker; anything else is `404`, and customers get `403 worker_role_required`.
 5. `worker_eligibility(user, profile).receives_requests` is true. That covers a complete profile, an identity
    status accepted here (demo approval counts in demo mode only) and the worker's accepting-requests choice.
 
-**Ranking.** Workers with more requested services among their main specialities come first. Ties are broken by
-`worker_id` (stable, and not tied to sign-up time). At most 20 workers are returned.
+**Ranking** (M9), in order:
+1. More requested services among the worker's main specialities (relevance first).
+2. More customer-confirmed completed jobs that included a requested service.
+3. A smoothed visible rating. It is pulled towards a neutral 3.0 as if there were two extra 3-star reviews, so an
+   unrated worker ranks as neutral, never as zero, and a single review cannot outrank a long record.
+4. More visible reviews.
+5. `worker_id`, as a stable tie-breaker.
+
+At most 20 workers are returned. History and ratings come from completed bookings and visible reviews, in two
+grouped queries for the whole list.
 
 **Reasons.** Each card explains the match with stored facts:
 - `speciality`: the requested services that are listed main specialities.
 - `offers`: the requested services the worker offers that are not main specialities.
 - `serves_area`: the selected area is one the worker serves.
+- `completed_jobs` (M9): `{count, services}`, the confirmed completed jobs that included a requested service.
 
-Every worker has `is_new: true` because completed jobs and reviews arrive in M9. Cards never include a name,
+`history` gives `completed_jobs` (all confirmed), `relevant_jobs`, `review_count` and `average_rating` (`null`
+when unrated). `is_new` is true until the first customer-confirmed completed job. Cards never include a name,
 phone number, CNIC, registry data or addresses, and no distance is shown.
 
 **Before sending.**
@@ -864,12 +875,103 @@ the customer screen says so.
     (`409 schedule_conflict`).
 - Scope and price changes are also allowed during the job (for example a third fan).
 
-### Hand-off to M9
+Completion, disputes and reviews continue below (M9).
 
-M9 receives a booking in `in_progress` with:
-- `accepted_terms` (the exact quote version and its approval record);
-- the terms in effect;
-- every approved change;
-- the full status history in `history`.
+## Completion, disputes and reviews (M9)
 
-Completion, disputes and reviews are M9.
+The booking life cycle continues from M8:
+
+```
+in_progress → completion_requested (worker) → completed (customer confirms)
+                                            → disputed (customer raises an issue) → in_progress | closed (staff, Django Admin)
+```
+
+**Reservations and starts:**
+- `completion_requested` and `disputed` keep the worker's reservation: the no-overlap exclusion constraint covers
+  `confirmed, arrived, in_progress, completion_requested, disputed`.
+- They also count as the worker's current job: `booking_one_started_per_worker` covers `in_progress,
+  completion_requested, disputed`, and so does the service check. Another job cannot start, even after the
+  planned end, and the response is `409 worker_has_job_in_progress`.
+- `completed` (confirmed by the customer) and `closed` (by staff) release the worker.
+- The worker's accepting-requests preference, the accepted terms and the change history are never touched.
+
+**Retries and races:** all actions lock job → worker → booking (the M8 order) and are retry-safe. Repeating an
+action returns the booking without a second event. A confirm racing a dispute leaves exactly one of them applied;
+the other gets `409 booking_state_conflict` with the current `status`.
+
+### Endpoints
+
+- **`POST /bookings/{id}/request-completion/`** (assigned worker): `in_progress` → `completion_requested`.
+  - While a change proposal is pending: `409 change_open` (`details.change_id`, `number`). Approve, reject or
+    withdraw it first. The booking shows `actions.completion_blocked_by_change`.
+  - Changes cannot be proposed or approved during `completion_requested` or `disputed` (`409
+    booking_state_conflict`).
+- **`POST /bookings/{id}/confirm-completion/`** (owning customer): `completion_requested` → `completed`.
+  - The booked catalog services are recorded as `completed_services`: the request's explicit tags, never
+    inferred from review text and never the worker's whole profile.
+  - The worker never completes a booking alone, and a booking stays `completion_requested` until the customer
+    answers.
+- **`POST /bookings/{id}/raise-issue/`** (owning customer) `{"reason": "not_finished"|"not_as_agreed"|"damage"|"price"|"other", "note": 3–500}`:
+  `completion_requested` → `disputed`.
+- **Staff outcome:** not an API. It is done in Django Admin with the `bookings.resolve_dispute` permission:
+  Bookings → a disputed booking → **Record dispute outcome**.
+  - The outcome is `return_to_work` (→ `in_progress`) or `close` (→ `closed`), with a reason.
+  - `close` also closes the invitation (status `cancelled`): the conversation becomes read-only, and the quote
+    can never be reused.
+  - The booking shows `staff_outcome` and `staff_reason` to both participants; staff identity is not shown.
+  - A `closed` booking is not completed work and can never be reviewed.
+
+**New booking fields:**
+- `completion_requested_at`, `completed_at`, `completed_services`;
+- `disputed_at`, `dispute_reason`, `dispute_note`;
+- `closed_at`, `staff_outcome`, `staff_reason`;
+- `review`.
+
+`actions` gains `request_completion`, `completion_blocked_by_change`, `confirm_completion`, `raise_issue` and
+`review`. History event kinds gain `completion_requested`, `completed`, `disputed`, `staff_resolved` (actor role
+`staff`) and `reviewed`. Booking cards gain `review_submitted`.
+
+### Reviews
+
+`POST /bookings/{id}/review/` (owning customer) with
+`{"rating": 1–5, "text"?: ≤500, "audio_clip_id"?, "transcription_id"?}`:
+
+- Returns `201` with the Review the first time. A repeat returns `200` with the stored review
+  (`created: false`); the first review is never replaced.
+- One review per booking (`review_one_per_booking`, unique in PostgreSQL). Ratings must be 1–5
+  (`review_rating_1_to_5`).
+- Reviews are allowed only on a `completed` booking. Every other status (cancelled, in progress, awaiting
+  confirmation, disputed, closed by staff) returns `409 review_not_allowed` (`details.status`). The worker gets
+  `403 not_allowed_for_role`, and other accounts get `404`.
+- **Voice draft:**
+  1. Upload the recording with `POST /audio/clips/`, `purpose: "review"`. It stays owner-only.
+  2. `POST /audio/transcribe/` proposes an Urdu draft.
+  3. The customer edits it and sends it as `text`.
+  - The proposal is stored separately (`interpreted_text`, shown to the author only). Typed reviews need no
+    audio.
+- The review's `services` are the booking's `completed_services`.
+
+```json
+{"id": "…", "rating": 5, "text": "کاریگر وقت پر آئے …", "source": "voice", "services": ["elec_fan_install"],
+ "created_at": "…Z", "hidden": false, "interpreted_text": "…author only…", "created": true}
+```
+
+**Hiding:** done in Django Admin with the `reviews.hide_review` permission: Reviews → **Hide review…** with a
+reason.
+- The original text is never edited. `hidden_at`, `hidden_by` and `hidden_reason` are stored.
+- A hidden review disappears for the worker (booking and feedback) and from every rating and count. Its author
+  still sees it, marked `hidden: true`.
+
+### Worker feedback
+
+`GET /bookings/feedback/` (worker) →
+
+```json
+{"completed_jobs": 1, "review_count": 1, "average_rating": "5.0",
+ "jobs": [{"booking_id": "…", "completed_at": "…Z", "trade": "electrician", "area": "isb-g-9",
+           "services": ["elec_fan_install"], "review": {"rating": 5, "text": "…", "…": "…"}}]}
+```
+
+- `average_rating` has one decimal, or is `null` when there are no visible reviews (**never zero**).
+- Only customer-confirmed completed bookings count. Jobs show the area only: no address, access notes or
+  identities.
