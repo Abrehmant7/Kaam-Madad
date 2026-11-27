@@ -11,6 +11,8 @@ const catalog = {
   "GET /api/v1/catalog/trades/": jsonResponse(page(TRADES)),
   "GET /api/v1/catalog/service-tags/": jsonResponse(page(SERVICES)),
   "GET /api/v1/catalog/areas/": jsonResponse(page(AREAS)),
+  // The request itself (for its Urdu description state); an Urdu request needs no Urdu version.
+  "GET /api/v1/jobs/job-1/": jsonResponse({ id: "job-1", urdu: { needed: false, text: "", status: "none", description_language: "ur" } }),
 };
 const SHARED = {
   description: "Two ceiling fans. Call me on 0300 1234567",

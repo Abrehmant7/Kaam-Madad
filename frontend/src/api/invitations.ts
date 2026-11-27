@@ -1,6 +1,6 @@
 import type { Page } from "./catalog";
 import { apiRequest } from "./client";
-import type { JobRequest } from "./jobs";
+import type { JobRequest, UrduPatch } from "./jobs";
 
 export type InvitationStatus = "active" | "declined" | "withdrawn" | "cancelled";
 /** M8: the booking made from an invitation (its quote was accepted). */
@@ -12,7 +12,12 @@ export type DeclineReason = "not_available" | "too_far" | "not_my_work" | "other
 
 /** What a worker may see about a request (no address, access notes, photos, recordings or customer identity). */
 export interface SharedSummary {
+  /** The customer's own words. */
   description: string;
+  /** Language of the customer's description (older invitations: absent). */
+  description_language?: "ur" | "en" | "mixed" | null;
+  /** Urdu version, present only when the customer approved it for this description. */
+  description_ur?: string | null;
   trade: string;
   services: string[];
   services_excluded: string[];
@@ -88,10 +93,10 @@ export const sendInvitation = (jobId: string, workerId: string) =>
 export const withdrawInvitation = (jobId: string, invitationId: string) =>
   apiRequest<CustomerInvitation>(`/jobs/${jobId}/invitations/${invitationId}/withdraw/`, { method: "POST" });
 
-export const updateSharedDescription = (jobId: string, description: string) =>
+export const updateSharedDescription = (jobId: string, description: string, urdu: UrduPatch = {}) =>
   apiRequest<JobRequest & { privacy_warnings: string[] }>(`/jobs/${jobId}/shared-description/`, {
     method: "PATCH",
-    body: { description },
+    body: { description, ...urdu },
   });
 
 export const fetchInbox = (signal?: AbortSignal) => apiRequest<Page<WorkerInvitation>>("/invitations/?page_size=50", { signal });

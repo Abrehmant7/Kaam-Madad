@@ -1,6 +1,7 @@
 import { apiRequest } from "./client";
 
-export type VoiceKind = "worker_introduction" | "job_description";
+/** Interpretation kinds: the M3/M5 drafts and the two worker signup screens answered by voice. */
+export type VoiceKind = "worker_introduction" | "job_description" | "onboarding_work" | "onboarding_areas";
 /** Upload purposes: the two interpretation kinds, plus conversation voice notes (never interpreted as drafts). */
 export type ClipPurpose = VoiceKind | "message" | "review" | "report";
 export type LanguageHint = "ur" | "en";
@@ -51,7 +52,13 @@ export interface JobDescriptionFields {
   budget_pkr: number | null;
 }
 
-export type DraftFields = Partial<WorkerIntroductionFields & JobDescriptionFields>;
+export interface OnboardingFields {
+  primary_specialities: string[];
+  city: string | null;
+  service_areas: string[];
+}
+
+export type DraftFields = Partial<WorkerIntroductionFields & JobDescriptionFields & OnboardingFields>;
 
 export interface Draft {
   fields: DraftFields;
@@ -59,6 +66,8 @@ export interface Draft {
   uncertain: string[];
   unmatched_mentions: { phrase: string; negated: boolean }[];
   heard: Record<string, string>;
+  /** onboarding_areas: areas the worker said they do NOT go to (never selected). */
+  not_selected?: string[];
 }
 
 export interface Interpretation {

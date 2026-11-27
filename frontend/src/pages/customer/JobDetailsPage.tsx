@@ -16,6 +16,7 @@ import { citiesOf, type JobCatalog, loadJobCatalog } from "../../features/jobs/c
 import { OriginalInput } from "../../features/jobs/JobSummary";
 import { JobPhotos } from "../../features/jobs/JobPhotos";
 import { textDir } from "../../features/jobs/text";
+import { UrduDescriptionEditor } from "../../features/jobs/UrduDescription";
 import { fromIso, karachiDate, toIso } from "../../features/jobs/time";
 import { SimulatedBadge } from "../../features/voice/SimulatedBadge";
 import { label, LoadError, StepHeader, useLoad } from "../../features/worker/shared";
@@ -40,6 +41,10 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
   const start = fromIso(d.window_start);
   const end = fromIso(d.window_end);
   const [description, setDescription] = useState(d.description);
+  // Urdu version for the worker (English / Roman Urdu / mixed requests): reviewed and approved by the customer.
+  const showUrdu = job.urdu.needed || Boolean(job.urdu.text);
+  const [urduText, setUrduText] = useState(job.urdu.text);
+  const [urduApproved, setUrduApproved] = useState(job.urdu.status === "approved");
   const [trade, setTrade] = useState<string[]>(d.trade ? [d.trade] : []);
   const [services, setServices] = useState<string[]>(d.services);
   const [excluded, setExcluded] = useState<string[]>(d.services_excluded);
@@ -115,7 +120,14 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
       address_private: address.trim(),
       access_notes: access.trim(),
       budget_pkr: budget.trim() ? budget.trim() : null,
+      ...(showUrdu ? { description_ur: urduText.trim(), description_ur_approved: urduApproved } : {}),
     };
+  }
+
+  function changeDescription(value: string) {
+    setDescription(value);
+    // The Urdu version was approved for the previous wording: it must be checked again.
+    if (urduApproved && value.trim() !== d.description.trim()) setUrduApproved(false);
   }
 
   async function save(next: "save" | "continue") {
@@ -178,9 +190,13 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
       {saved && <Alert tone="success">{t("jobs.details.saved")}</Alert>}
 
       <div className="space-y-1">
-        <TextArea label={t("jobs.field.description")} hint={t("jobs.field.descriptionHint")} value={description} onChange={setDescription} errors={errors.description} maxLength={2000} rows={4} dir={textDir(description)} />
+        <TextArea label={t("jobs.field.description")} hint={t("jobs.field.descriptionHint")} value={description} onChange={changeDescription} errors={errors.description} maxLength={2000} rows={4} dir={textDir(description)} />
         {checkBadge("description")}
       </div>
+      {showUrdu && (
+        <UrduDescriptionEditor urdu={job.urdu} text={urduText} approved={urduApproved} onText={setUrduText} onApproved={setUrduApproved}
+          errors={errors.description_ur} />
+      )}
 
       <div className="space-y-1">
         {checkBadge("trade")}

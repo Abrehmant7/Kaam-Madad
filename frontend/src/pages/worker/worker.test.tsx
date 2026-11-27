@@ -40,12 +40,13 @@ describe("worker onboarding (screens 2 and 3)", () => {
     expect(router.state.location.pathname).toBe("/worker/setup/work");
   });
 
-  it("chooses work and areas with tiles, shows server validation, and opens the dashboard", async () => {
+  it("chooses work and areas with tiles, shows server validation, and offers demo verification next", async () => {
     let workAttempts = 0;
     let saved = makeDashboard("work"); // what the server has stored so far
     const calls = mockApi({
       ...bootHandlers(worker()),
       ...workerHandlers(),
+      "GET /api/v1/identity/cases/": jsonResponse({ case: null, provider: { provider: "demo_registry", available: true, simulated: true } }),
       "GET /api/v1/workers/me/": () => jsonResponse(saved),
       "PUT /api/v1/workers/me/work/": () => {
         if (++workAttempts === 1) {
@@ -86,9 +87,11 @@ describe("worker onboarding (screens 2 and 3)", () => {
     expect(screen.queryByRole("button", { name: /Saddar/ })).not.toBeInTheDocument(); // other city's areas hidden
     await userEvent.click(tile("G-9"));
     await userEvent.click(screen.getByRole("button", { name: en["onboarding.areas.save"] }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/worker"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/worker/verify"));
     expect(calls.find((call) => call.path === "/api/v1/workers/me/areas/")?.body).toEqual({ city: "islamabad", service_areas: ["isb-g-9"] });
-    expect(await screen.findByRole("heading", { level: 1, name: en["worker.dashboard.title"] })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: en["demoVerify.title"] })).toBeInTheDocument();
+    // Verification is optional at this point: the dashboard stays one tap away.
+    expect(screen.getByRole("link", { name: en["demoVerify.later"] })).toHaveAttribute("href", "/worker");
   }, 20000);
 });
 
@@ -123,7 +126,7 @@ describe("identity verification", () => {
         eligibility: { can_take_jobs: true, receives_requests: true, reasons: [] },
       }),
     });
-    renderApp("/worker/verify", "en");
+    renderApp("/worker/verify/card", "en");
     expect(await screen.findByText(en["verify.why.heading"])).toBeInTheDocument();
     const agree = screen.getByRole("button", { name: en["verify.start"] });
     expect(agree).toBeDisabled();
@@ -159,7 +162,7 @@ describe("identity verification", () => {
         provider: { provider: "demo_registry", available: true, simulated: true },
       }),
     });
-    renderApp("/worker/verify", "en");
+    renderApp("/worker/verify/card", "en");
     expect(await screen.findByText(en["verify.result.nameMismatch"])).toBeInTheDocument();
     expect(screen.getByLabelText(en["verify.name.label"])).toHaveValue("Kamran Shah");
     expect(screen.getByRole("button", { name: en["verify.submit"] })).toBeEnabled();
@@ -174,7 +177,7 @@ describe("identity verification", () => {
         503,
       ),
     });
-    renderApp("/worker/verify", "en");
+    renderApp("/worker/verify/card", "en");
     fireEvent.change(await screen.findByTestId("upload-input"), { target: { files: [new File([new Uint8Array(2048)], "card.jpg", { type: "image/jpeg" })] } });
     expect(await screen.findByText(en["verify.ocr.setup"])).toBeInTheDocument();
     expect(screen.queryByLabelText(en["verify.name.label"])).not.toBeInTheDocument(); // no typing-only approval path

@@ -11,6 +11,7 @@ import { Button } from "../../components/ui/Button";
 import { IconTileGroup, type TileOption } from "../../components/ui/IconTile";
 import { PageLoader } from "../../components/ui/PageLoader";
 import { InstructionAudio } from "../../features/instructions/InstructionAudio";
+import { VoiceAnswer, type VoiceSuggestion } from "../../features/voice/VoiceAnswer";
 import { label, LoadError, StepHeader, useLoad } from "../../features/worker/shared";
 import { useI18n } from "../../i18n/context";
 import { describeError, fieldErrorCodes, translateFieldCodes } from "../../i18n/errors";
@@ -67,6 +68,16 @@ export function OnboardingWorkPage() {
     return () => controller.abort();
   }, [selectedTrade]);
 
+  /** Voice suggestions fill the same editable choices; the worker checks them and saves as usual. */
+  function applyVoice({ fields }: VoiceSuggestion) {
+    const nextOffered = fields.services_offered?.length ? fields.services_offered : offered;
+    if (fields.trade) setTrade([fields.trade]);
+    setOffered(nextOffered);
+    // An unclear main speciality is left unselected (empty) for the worker to choose.
+    setPrimary((fields.primary_specialities ?? []).filter((code) => nextOffered.includes(code)));
+    if (fields.services_not_offered) setExcluded(fields.services_not_offered.filter((code) => !nextOffered.includes(code)));
+  }
+
   function changeOffered(next: string[]) {
     setOffered(next);
     setPrimary((current) => current.filter((code) => next.includes(code)));
@@ -118,6 +129,7 @@ export function OnboardingWorkPage() {
     <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-6">
       <StepHeader step={2} title={t("onboarding.work.title")} />
       <InstructionAudio id="onboarding_work" />
+      <VoiceAnswer kind="onboarding_work" onSuggest={applyVoice} />
       {formError !== null && <Alert tone="danger">{describeError(formError, t)}</Alert>}
 
       <IconTileGroup label={t("onboarding.work.tradeLabel")} mode="single" options={tradeOptions} value={trade} onChange={setTrade} errors={errors.trade} />

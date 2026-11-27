@@ -4,6 +4,7 @@ import { useParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import * as invitationsApi from "../../api/invitations";
+import * as jobsApi from "../../api/jobs";
 import { Alert } from "../../components/ui/Alert";
 import { Button, ButtonLink } from "../../components/ui/Button";
 import { PageLoader } from "../../components/ui/PageLoader";
@@ -13,6 +14,7 @@ import { Stars } from "../../features/bookings/ReviewPanel";
 import { SharedJob } from "../../features/invitations/SharedJob";
 import { type JobCatalog, labeller, loadJobCatalog } from "../../features/jobs/catalog";
 import { textDir } from "../../features/jobs/text";
+import { UrduDescriptionEditor } from "../../features/jobs/UrduDescription";
 import { formatDate, formatTime } from "../../features/jobs/time";
 import { LoadError, useLoad } from "../../features/worker/shared";
 import { useI18n } from "../../i18n/context";
@@ -32,7 +34,13 @@ function workerTitle(trade: string | null, workerId: string, catalog: JobCatalog
 export function FindWorkersPage() {
   const { id = "" } = useParams();
   const data = useLoad(
-    (signal) => Promise.all([invitationsApi.fetchRecommendations(id, signal), loadJobCatalog(signal), invitationsApi.fetchJobInvitations(id, signal)]),
+    (signal) =>
+      Promise.all([
+        invitationsApi.fetchRecommendations(id, signal),
+        loadJobCatalog(signal),
+        invitationsApi.fetchJobInvitations(id, signal),
+        jobsApi.fetchJob(id, signal),
+      ]),
     [id],
   );
   const { t } = useI18n();
@@ -49,15 +57,16 @@ export function FindWorkersPage() {
       </div>
     );
   }
-  const [recs, catalog, history] = data.state.data;
-  return <Workers jobId={id} recs={recs} catalog={catalog} history={history.results} reload={data.retry} />;
+  const [recs, catalog, history, job] = data.state.data;
+  return <Workers jobId={id} recs={recs} catalog={catalog} history={history.results} urdu={job.urdu} reload={data.retry} />;
 }
 
-function Workers({ jobId, recs, catalog, history, reload }: {
+function Workers({ jobId, recs, catalog, history, urdu, reload }: {
   jobId: string;
   recs: invitationsApi.Recommendations;
   catalog: JobCatalog;
   history: invitationsApi.CustomerInvitation[];
+  urdu: jobsApi.UrduDescription;
   reload: () => void;
 }) {
   const { t, language } = useI18n();
@@ -68,8 +77,16 @@ function Workers({ jobId, recs, catalog, history, reload }: {
   const [description, setDescription] = useState(recs.shared_preview.description);
   const [savedDescription, setSavedDescription] = useState(recs.shared_preview.description);
   const [warnings, setWarnings] = useState(recs.privacy_warnings);
+  // The Urdu version for the worker: shared only when approved for the current description.
+  const showUrdu = urdu.needed || Boolean(urdu.text);
+  const [savedUrdu, setSavedUrdu] = useState(urdu);
+  const [urduText, setUrduText] = useState(urdu.text);
+  const [urduApproved, setUrduApproved] = useState(urdu.status === "approved");
   // Warnings describe the SAVED text; while the customer is editing they would be stale.
-  const dirty = description.trim() !== savedDescription.trim();
+  const dirty =
+    description.trim() !== savedDescription.trim() ||
+    (showUrdu && (urduText.trim() !== savedUrdu.text.trim() || urduApproved !== (savedUrdu.status === "approved")));
+  const urduPatch = showUrdu ? { description_ur: urduText.trim(), description_ur_approved: urduApproved } : {};
   const active = recs.active_invitation;
   const separator = language === "ur" ? "، " : ", ";
   const services = (codes: string[]) => codes.map(label.service).join(separator);
@@ -93,10 +110,18 @@ function Workers({ jobId, recs, catalog, history, reload }: {
 
   const saveDescription = () =>
     act("description", async () => {
-      const updated = await invitationsApi.updateSharedDescription(jobId, description);
+      const updated = await invitationsApi.updateSharedDescription(jobId, description, urduPatch);
       setWarnings(updated.privacy_warnings as typeof warnings);
       setSavedDescription(updated.details.description);
+      setSavedUrdu(updated.urdu);
+      setUrduText(updated.urdu.text);
+      setUrduApproved(updated.urdu.status === "approved");
     });
+
+  function changeDescription(value: string) {
+    setDescription(value);
+    if (urduApproved && value.trim() !== savedDescription.trim()) setUrduApproved(false); // check the Urdu again
+  }
 
   const closedHistory = history.filter((item) => item.status !== "active");
 
@@ -210,7 +235,7 @@ function Workers({ jobId, recs, catalog, history, reload }: {
                     <section aria-label={t("rec.preview.title")} className="space-y-3 rounded-2xl border-2 border-primary/40 bg-surface p-3">
                       <h3 className="font-bold">{t("rec.preview.title")}</h3>
                       <p className="text-sm">{t("rec.preview.intro")}</p>
-                      <SharedJob job={{ ...recs.shared_preview, description }} catalog={catalog} />
+                      <SharedJob job={{ ...recs.shared_preview, description, description_ur: urduApproved ? urduText : null }} catalog={catalog} />
                       <Alert tone="info" title={t("rec.preview.notShared.title")}>{t("rec.preview.notShared.body")}</Alert>
                       <Alert tone={warnings.length && !dirty ? "warning" : "info"} title={t("rec.preview.reminder.title")}>
                         <p>{t("rec.preview.reminder.body")}</p>
@@ -218,7 +243,10 @@ function Workers({ jobId, recs, catalog, history, reload }: {
                         {!dirty && warnings.includes("address") && <p className="font-bold">{t("rec.preview.warning.address")}</p>}
                         {dirty && <p className="font-bold">{t("rec.preview.unsaved")}</p>}
                       </Alert>
-                      <TextArea label={t("rec.preview.editDescription")} value={description} onChange={setDescription} maxLength={2000} rows={3} dir={textDir(description)} />
+                      <TextArea label={t("rec.preview.editDescription")} value={description} onChange={changeDescription} maxLength={2000} rows={3} dir={textDir(description)} />
+                      {showUrdu && (
+                        <UrduDescriptionEditor urdu={savedUrdu} text={urduText} approved={urduApproved} onText={setUrduText} onApproved={setUrduApproved} />
+                      )}
                       <Button variant="secondary" loading={busy === "description"} loadingLabel={t("onboarding.saving")} disabled={!dirty || busy !== null}
                         icon={<Save className="size-5" aria-hidden />} onClick={() => void saveDescription()}>
                         {t("rec.preview.saveDescription")}
@@ -226,7 +254,7 @@ function Workers({ jobId, recs, catalog, history, reload }: {
                       <p className="text-sm text-muted">{t("rec.notABooking")}</p>
                       <Button fullWidth loading={busy === "send"} loadingLabel={t("onboarding.saving")} icon={<Send className="size-5" aria-hidden />}
                         onClick={() => void act("send", async () => {
-                          if (dirty) await invitationsApi.updateSharedDescription(jobId, description);
+                          if (dirty) await invitationsApi.updateSharedDescription(jobId, description, urduPatch);
                           await invitationsApi.sendInvitation(jobId, card.worker_id);
                         })}>
                         {t("rec.preview.send")}

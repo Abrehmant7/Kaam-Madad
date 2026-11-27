@@ -24,6 +24,7 @@ function makeJob(overrides: Record<string, unknown> = {}, details: Record<string
       timezone: "Asia/Karachi", address_private: "", access_notes: "", budget_pkr: null, ...details,
     },
     suggestions: { interpretation_id: "i1", provider: "fixture", simulated: true, fields: {}, missing: [], uncertain: ["preferred_time_text"], unmatched_mentions: [], heard: {} },
+    urdu: { needed: false, text: "", status: "none", description_language: "en" },
     photos: [], issues: { window_start: ["required"], window_end: ["required"] }, ready_to_confirm: false,
     ...overrides,
   };

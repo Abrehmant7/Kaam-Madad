@@ -22,6 +22,7 @@ import { RouteErrorPage } from "./pages/RouteErrorPage";
 import { SignupPage } from "./pages/SignupPage";
 import { VoiceTestPage } from "./pages/VoiceTestPage";
 import { StartPage } from "./pages/StartPage";
+import { DemoVerifyPage } from "./pages/worker/DemoVerifyPage";
 import { OnboardingAreasPage } from "./pages/worker/OnboardingAreasPage";
 import { OnboardingWorkPage } from "./pages/worker/OnboardingWorkPage";
 import { VerifyIdentityPage } from "./pages/worker/VerifyIdentityPage";
@@ -65,7 +66,9 @@ export const routes: RouteObject[] = [
           { index: true, element: <WorkerDashboardPage /> },
           { path: "setup/work", element: <OnboardingWorkPage /> },
           { path: "setup/areas", element: <OnboardingAreasPage /> },
-          { path: "verify", element: <VerifyIdentityPage /> },
+          // Event demo flow: two sample uploads. The M4 card scan + demo registry stays available, outside the default flow.
+          { path: "verify", element: <DemoVerifyPage /> },
+          { path: "verify/card", element: <VerifyIdentityPage /> },
           { path: "invitations/:id", element: <WorkerInvitationPage /> },
         ],
       },

@@ -125,6 +125,18 @@ export function scanCard(caseId: string, file: Blob, name = "card") {
   return apiRequest<{ case: IdentityCase }>(`/identity/cases/${caseId}/scan/`, { method: "POST", body: form, timeoutMs: 60000 });
 }
 
+/** Event demo: a sample CNIC and a sample selfie → "Demo verification complete" (demo deployments only). */
+export function demoVerify(cnic: Blob, cnicName: string, selfie: Blob, selfieName: string) {
+  const form = new FormData();
+  form.append("cnic_image", cnic, cnicName);
+  form.append("selfie_image", selfie, selfieName);
+  return apiRequest<{ case: IdentityCase; eligibility: Eligibility }>("/identity/demo-verification/", {
+    method: "POST",
+    body: form,
+    timeoutMs: 60000,
+  });
+}
+
 export const submitDetails = (caseId: string, name: string, cnic_number: string) =>
   apiRequest<{ case: IdentityCase; eligibility: Eligibility }>(`/identity/cases/${caseId}/submit/`, {
     method: "POST",

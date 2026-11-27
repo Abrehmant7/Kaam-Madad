@@ -44,6 +44,16 @@ export interface JobSuggestions {
   heard: Record<string, string>;
 }
 
+/** Urdu version of the description for an Urdu-speaking worker (English / Roman Urdu / mixed requests). */
+export interface UrduDescription {
+  /** True when the request is in English, Roman Urdu or mixed, so an Urdu version helps the worker. */
+  needed: boolean;
+  text: string;
+  /** suggested: AI wording, not shared · approved: shared with invited workers · outdated: the description changed. */
+  status: "none" | "suggested" | "approved" | "outdated";
+  description_language: "ur" | "en" | "mixed" | null;
+}
+
 export interface JobRequest {
   id: string;
   status: JobStatus;
@@ -60,6 +70,7 @@ export interface JobRequest {
   };
   details: JobDetails;
   suggestions: JobSuggestions | null;
+  urdu: UrduDescription;
   photos: JobPhoto[];
   /** What still blocks confirmation, as field → codes. */
   issues: Record<string, string[]>;
@@ -83,7 +94,13 @@ export interface JobListItem {
   booking: BookingLink | null;
 }
 
-export type DetailsPatch = Partial<Omit<JobDetails, "timezone">>;
+export type DetailsPatch = Partial<Omit<JobDetails, "timezone">> & UrduPatch;
+
+/** The customer's edit of the Urdu version and/or approval of it for the current description. */
+export interface UrduPatch {
+  description_ur?: string;
+  description_ur_approved?: boolean;
+}
 
 export const listJobs = (signal?: AbortSignal) => apiRequest<Page<JobListItem>>("/jobs/?page_size=50", { signal });
 

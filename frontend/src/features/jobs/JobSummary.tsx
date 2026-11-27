@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n/context";
 import type { Language } from "../../i18n/types";
 import { type JobCatalog, labeller } from "./catalog";
 import { textDir, isolateLtr } from "./text";
+import { languageName } from "./UrduDescription";
 import { formatDate, formatTime } from "./time";
 
 type T = I18nContextValue["t"];
@@ -64,6 +65,19 @@ export function JobSummary({ job, catalog }: { job: JobRequest; catalog: JobCata
         <Row title={t("jobs.summary.description")}>
           <span dir={textDir(d.description)} className="block whitespace-pre-line font-normal">{d.description || "—"}</span>
         </Row>
+        {(job.urdu.needed || job.urdu.text) && (
+          <Row title={t("jobs.urdu.heading")}>
+            <span className="flex flex-col gap-1">
+              <StatusBadge tone={job.urdu.status === "approved" ? "success" : job.urdu.status === "outdated" ? "danger" : "warning"}>
+                {t(`jobs.urdu.status.${job.urdu.status}`)}
+              </StatusBadge>
+              {job.urdu.text && <span dir="rtl" lang="ur" className="block whitespace-pre-line font-normal">{job.urdu.text}</span>}
+              {job.urdu.status !== "approved" && (
+                <span className="text-sm font-normal text-muted">{t("jobs.urdu.notApproved", { language: languageName(job.urdu.description_language, t) })}</span>
+              )}
+            </span>
+          </Row>
+        )}
         <Row title={t("jobs.summary.area")}>{d.area ? `${label.area(d.area)}${separator}${label.city(d.city)}` : "—"}</Row>
         <Row title={t("jobs.summary.when")}>
           {when ? (
