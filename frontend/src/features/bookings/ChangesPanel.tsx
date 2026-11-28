@@ -98,18 +98,20 @@ function ProposeForm({ booking, act, busy, onClose }: { booking: bookingsApi.Boo
 }
 
 /** QT-04: proposals need the other person's approval; the agreement in effect stays until then. */
-export function ChangesPanel({ booking, act, busy }: { booking: bookingsApi.Booking; act: Act; busy: boolean }) {
+export function ChangesPanel({ booking, act, busy, heading = true }: { booking: bookingsApi.Booking; act: Act; busy: boolean; heading?: boolean }) {
   const { t } = useI18n();
   const [proposing, setProposing] = useState(false);
   const pending = booking.changes.find((change) => change.status === "pending");
   const past = booking.changes.filter((change) => change.status !== "pending");
 
   return (
-    <section aria-labelledby="changes-heading" className="space-y-3">
-      <h2 id="changes-heading" className="flex items-center gap-2 text-lg font-bold">
-        <FilePen className="size-5" aria-hidden />
-        {t("change.title")}
-      </h2>
+    <section aria-labelledby={heading ? "changes-heading" : undefined} aria-label={heading ? undefined : t("change.title")} className="space-y-3">
+      {heading && (
+        <h2 id="changes-heading" className="flex items-center gap-2 text-lg font-bold">
+          <FilePen className="size-5" aria-hidden />
+          {t("change.title")}
+        </h2>
+      )}
       {pending && (
         <div className="space-y-2 rounded-2xl border-2 border-warning bg-warning-soft p-3">
           <StatusBadge tone="warning">{t("change.pending", { number: pending.number })}</StatusBadge>

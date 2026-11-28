@@ -4,7 +4,8 @@ import { GuestOnly, RequireAuth } from "./auth/guards";
 import { AppShell } from "./components/layout/AppShell";
 import { CatalogPreviewPage } from "./pages/CatalogPreviewPage";
 import { BookingPage } from "./pages/BookingPage";
-import { ConversationPage } from "./pages/ConversationPage";
+import { ChatStage, ConversationRoute, QuoteStage } from "./pages/ConversationPage";
+import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 import { ReportNewPage } from "./pages/ReportNewPage";
 import { ReportDetailPage, ReportsPage } from "./pages/ReportsPages";
 import { CustomerDashboardPage } from "./pages/customer/CustomerDashboardPage";
@@ -39,22 +40,32 @@ export const routes: RouteObject[] = [
       {
         element: <GuestOnly />,
         children: [
-          { index: true, element: <LandingPage />, handle: { width: "wide" } },
+          { index: true, element: <LandingPage /> },
           { path: "start", element: <StartPage /> },
           { path: "signup", element: <SignupPage /> },
           { path: "login", element: <LoginPage /> },
         ],
       },
-      { path: "catalog", element: <CatalogPreviewPage />, handle: { width: "medium" } },
+      { path: "catalog", element: <CatalogPreviewPage /> },
+      // Developer diagnostics (server readiness): reachable by URL only, never from the normal navigation.
+      { path: "diagnostics", element: <DiagnosticsPage /> },
       {
         element: <RequireAuth />,
         children: [
           { path: "account", element: <AccountHomePage /> },
           { path: "account/phone", element: <PhoneConfirmationPage /> },
+          // Developer tools: not linked from the normal navigation.
           { path: "voice-test", element: <VoiceTestPage /> },
-          // Chat beside the quote terms on desktop.
-          { path: "conversations/:id", element: <ConversationPage />, handle: { width: "wide" } },
-          { path: "bookings/:id", element: <BookingPage />, handle: { width: "medium" } },
+          // A job's stages: Request & chat → Quote (same invitation) → Work progress (the booking).
+          {
+            path: "conversations/:id",
+            element: <ConversationRoute />,
+            children: [
+              { index: true, element: <ChatStage />, handle: { stage: "chat" } },
+              { path: "quote", element: <QuoteStage />, handle: { stage: "quote" } },
+            ],
+          },
+          { path: "bookings/:id", element: <BookingPage /> },
           { path: "reports", element: <ReportsPage /> },
           { path: "reports/new", element: <ReportNewPage /> },
           { path: "reports/:id", element: <ReportDetailPage /> },
@@ -64,26 +75,25 @@ export const routes: RouteObject[] = [
         path: "worker",
         element: <RequireAuth role="worker" />,
         children: [
-          { index: true, element: <WorkerDashboardPage />, handle: { width: "wide" } },
-          // "Answer by voice" sits beside the manual choices on desktop.
-          { path: "setup/work", element: <OnboardingWorkPage />, handle: { width: "medium" } },
-          { path: "setup/areas", element: <OnboardingAreasPage />, handle: { width: "medium" } },
+          { index: true, element: <WorkerDashboardPage /> },
+          { path: "setup/work", element: <OnboardingWorkPage /> },
+          { path: "setup/areas", element: <OnboardingAreasPage /> },
           // Event demo flow: two sample uploads. The M4 card scan + demo registry stays available, outside the default flow.
           { path: "verify", element: <DemoVerifyPage /> },
           { path: "verify/card", element: <VerifyIdentityPage /> },
-          { path: "invitations/:id", element: <WorkerInvitationPage />, handle: { width: "medium" } },
+          { path: "invitations/:id", element: <WorkerInvitationPage /> },
         ],
       },
       {
         path: "customer",
         element: <RequireAuth role="customer" />,
         children: [
-          { index: true, element: <CustomerDashboardPage />, handle: { width: "wide" } },
+          { index: true, element: <CustomerDashboardPage /> },
           { path: "requests/new", element: <DescribeJobPage /> },
           { path: "requests/:id", element: <JobDetailPage /> },
           { path: "requests/:id/details", element: <JobDetailsPage /> },
           { path: "requests/:id/review", element: <JobReviewPage /> },
-          { path: "requests/:id/workers", element: <FindWorkersPage />, handle: { width: "medium" } },
+          { path: "requests/:id/workers", element: <FindWorkersPage /> },
         ],
       },
       { path: "*", element: <NotFoundPage /> },

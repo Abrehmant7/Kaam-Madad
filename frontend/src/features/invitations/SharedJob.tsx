@@ -63,14 +63,16 @@ function Row({ title, children }: { title: string; children: ReactNode }) {
  * placed right after the task, area and time, so the Listen control stays with them. ``preview`` (customer) always
  * shows the approved Urdu version, whatever the customer's own interface language.
  */
-export function SharedJob({ job, catalog, showDescription = true, listen, preview = false }: {
+export function SharedJob({ job, catalog, showDescription = true, listen, preview = false, plain = false }: {
   job: SharedSummary; catalog: JobCatalog; showDescription?: boolean; listen?: ReactNode; preview?: boolean;
+  /** Without the card frame (inside another card). */
+  plain?: boolean;
 }) {
   const { t, language } = useI18n();
   const label = labeller(catalog, language);
   const separator = language === "ur" ? "، " : ", ";
   return (
-    <dl className="space-y-3 card p-4">
+    <dl className={plain ? "space-y-3" : "space-y-3 card p-4"}>
       <Row title={t("jobs.summary.task")}>
         {label.trade(job.trade)}: {job.services.map(label.service).join(separator)}
       </Row>

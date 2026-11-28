@@ -250,7 +250,9 @@ API contracts: [api.md](api.md).
 
 ### Deployment mode and phone confirmation (AUTH-03, NFR-04)
 - `APP_DEPLOYMENT_MODE` = `live` | `demo` (development default `demo`, production default `live`). Demo
-  deployments flag new accounts `is_demo` and the UI shows a persistent demo banner (from `GET /config/`).
+  deployments flag new accounts `is_demo`. Since the 28 Nov UX redesign the UI shows no global demo banner or
+  account badge: "Demo" wording stays only on the simulated identity-verification screens, simulated phone codes are
+  shown as "Your code is shown below", and fixture AI results keep their "not real AI" label.
 - `PHONE_VERIFICATION_PROVIDER` = `demo` | `unconfigured`. `check_simulation_allowed()` raises
   `ImproperlyConfigured` at settings load when `demo` is combined with `live` — production cannot start with
   simulated authentication (subprocess-tested). The service re-checks at runtime.

@@ -110,7 +110,7 @@ export function ReportDetailPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-4xl space-y-5">
       <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("report.title")}</h1>
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone={REPORT_TONE[report.status]}>{t(`report.status.${report.status}`)}</StatusBadge>

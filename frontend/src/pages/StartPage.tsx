@@ -26,7 +26,7 @@ export function StartPage() {
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl space-y-6">
       <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("start.title")}</h1>
 
       <IconTileGroup

@@ -7,16 +7,25 @@ import { bootHandlers, jsonResponse, makeUser, mockApi } from "./test/http";
 import { renderApp } from "./test/renderApp";
 
 const READY = { "GET /api/v1/health/ready/": jsonResponse({ status: "ok", checks: { database: "ok" } }) };
+const DEMO_WORDS = /demo|ڈیمو/i;
 
 describe("routes", () => {
-  it("renders the Urdu landing page with demo label for anonymous visitors", async () => {
-    mockApi({ ...bootHandlers(), ...READY });
+  it("renders the Urdu landing page for anonymous visitors without demo branding or server diagnostics", async () => {
+    const calls = mockApi({ ...bootHandlers(), ...READY });
     renderApp("/", "ur");
     expect(await screen.findByRole("heading", { level: 1, name: ur["landing.title"] })).toBeInTheDocument();
-    expect(screen.getByText(ur["demo.banner"])).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: ur["landing.needWork"] })).toHaveAttribute("href", "/signup?role=worker");
-    expect(screen.getByRole("link", { name: ur["landing.needWorker"] })).toHaveAttribute("href", "/signup?role=customer");
-    expect(await screen.findByText(ur["status.ready"])).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: ur["landing.needWork"] })[0]).toHaveAttribute("href", "/signup?role=worker");
+    expect(screen.getAllByRole("link", { name: ur["landing.needWorker"] })[0]).toHaveAttribute("href", "/signup?role=customer");
+    expect(document.body.textContent).not.toMatch(DEMO_WORDS);
+    expect(screen.queryByText(ur["status.heading"])).not.toBeInTheDocument();
+    expect(calls.some((call) => call.path === "/api/v1/health/ready/")).toBe(false);
+  });
+
+  it("keeps the server status for developers on /diagnostics, outside the navigation", async () => {
+    mockApi({ ...bootHandlers(), ...READY });
+    renderApp("/diagnostics", "en");
+    expect(await screen.findByRole("heading", { level: 1, name: "Diagnostics" })).toBeInTheDocument();
+    expect(await screen.findByText(en["status.ready"])).toBeInTheDocument();
   });
 
   it("renders a not-found page for unknown routes", async () => {

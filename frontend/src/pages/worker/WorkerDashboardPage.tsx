@@ -1,4 +1,4 @@
-import { BadgeCheck, CirclePause, CirclePlay, HardHat, IdCard, List, MapPin, Mic, Pencil, Phone, ShieldCheck, Wrench } from "lucide-react";
+import { BadgeCheck, CirclePause, CirclePlay, HardHat, IdCard, List, MapPin, Pencil, Phone, ShieldCheck, Wrench } from "lucide-react";
 import { type CSSProperties, useState } from "react";
 import { Link, Navigate } from "react-router";
 
@@ -27,7 +27,7 @@ const IDENTITY_TONE: Record<workersApi.IdentityStatus, BadgeTone> = {
   not_started: "neutral",
   in_progress: "info",
   no_match: "danger",
-  demo_approved: "warning",
+  demo_approved: "neutral",
   provider_verified: "success",
   manually_reviewed: "success",
   rejected: "danger",
@@ -103,7 +103,6 @@ export function WorkerDashboardPage() {
               <HardHat className="size-4" aria-hidden />
               {t("role.worker.badge")}
             </span>
-            {user.is_demo && <StatusBadge tone="warning">{t("demo.accountBadge")}</StatusBadge>}
           </div>
           <p className="flex flex-wrap items-center gap-1.5 text-sm text-[#dee7ff]">
             <span>{t("home.signedInAs")}</span>
@@ -145,7 +144,7 @@ export function WorkerDashboardPage() {
             <Ltr>{identity.masked_cnic}</Ltr>
           </p>
         )}
-        {identity.status === "demo_approved" && <Alert tone="demo">{t("worker.identity.demoNote")}</Alert>}
+        {identity.status === "demo_approved" && <p className="text-sm text-muted">{t("worker.identity.demoNote")}</p>}
         {!dashboard.identity_provider.available && !verified && <p className="text-sm text-muted">{t("worker.identity.unavailable")}</p>}
         {!verified && identity.status !== "suspended" && (
           <ButtonLink to={PATHS.workerVerify} icon={<ShieldCheck className="size-5" aria-hidden />} fullWidth>
@@ -204,10 +203,6 @@ export function WorkerDashboardPage() {
       </Card>
 
       <div className="flex flex-col gap-1">
-        <Link to={PATHS.voiceTest} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
-          <Mic className="size-5" aria-hidden />
-          {t("worker.voiceIntro")}
-        </Link>
         <Link to={PATHS.catalog} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
           <List className="size-5" aria-hidden />
           {t("landing.catalogLink")}

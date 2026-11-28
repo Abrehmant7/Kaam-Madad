@@ -1,5 +1,5 @@
-import { ArrowRight, Keyboard, Languages, Mic, RefreshCw, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { ArrowRight, CalendarClock, Keyboard, MapPin, Mic, RefreshCw, RotateCcw, Wallet, Wrench } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import * as jobsApi from "../../api/jobs";
@@ -7,8 +7,8 @@ import * as voiceApi from "../../api/voice";
 import { useAuth } from "../../auth/context";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
-import { IconTileGroup } from "../../components/ui/IconTile";
 import { TextArea } from "../../components/ui/TextArea";
+import { clearDraft, readDraft, writeDraft } from "../../features/drafts";
 import { textDir } from "../../features/jobs/text";
 import { type CapturedAudio, VoiceCapture } from "../../features/voice/VoiceCapture";
 import { StepHeader } from "../../features/worker/shared";
@@ -16,31 +16,56 @@ import { useI18n } from "../../i18n/context";
 import { describeError, LocalMessage } from "../../i18n/errors";
 
 type Busy = "saving" | "transcribing" | "interpreting" | null;
+type InputLanguage = "ur" | "en";
 const DEFAULT_LIMITS = { max_audio_bytes: 10 * 1024 * 1024, max_audio_seconds: 60 };
+const DRAFT_KEY = "describe-job";
+
+/** Everything typed, recorded or already created, kept in memory while the customer leaves this screen and returns. */
+interface DescribeDraft {
+  mode: "voice" | "text";
+  hint: InputLanguage | null;
+  typed: string;
+  audio: CapturedAudio | null;
+  jobId: string | null;
+  clipId: string | null;
+  transcriptionId: string | null;
+}
 
 /**
  * Step 1 — describe the job by recording, uploading audio or typing (Urdu or English).
  * A draft is saved FIRST, so the request survives a provider error or a reload; AI suggestions
  * are then attached. If speech-to-text or interpretation fails, the customer continues manually.
+ * The input language follows the interface language until the customer picks one.
  */
 export function DescribeJobPage() {
   const { t, language } = useI18n();
   const { config } = useAuth();
   const navigate = useNavigate();
   const limits = config?.voice_limits ?? DEFAULT_LIMITS;
-  const [hint, setHint] = useState<("ur" | "en")[]>([language]);
-  const [mode, setMode] = useState<"voice" | "text">("voice");
-  const [audio, setAudio] = useState<CapturedAudio | null>(null);
-  const [typed, setTyped] = useState("");
-  // Progress kept across retries so nothing is created twice.
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [clipId, setClipId] = useState<string | null>(null);
-  const [transcriptionId, setTranscriptionId] = useState<string | null>(null);
+  const [saved] = useState(() => readDraft<DescribeDraft>(DRAFT_KEY));
+  const [hint, setHint] = useState<InputLanguage | null>(saved?.hint ?? null);
+  const [mode, setMode] = useState<"voice" | "text">(saved?.mode ?? "voice");
+  const [audio, setAudio] = useState<CapturedAudio | null>(saved?.audio ?? null);
+  const [typed, setTyped] = useState(saved?.typed ?? "");
+  // Progress kept across retries (and visits elsewhere) so nothing is created twice.
+  const [jobId, setJobId] = useState<string | null>(saved?.jobId ?? null);
+  const [clipId, setClipId] = useState<string | null>(saved?.clipId ?? null);
+  const [transcriptionId, setTranscriptionId] = useState<string | null>(saved?.transcriptionId ?? null);
   const [busy, setBusy] = useState<Busy>(null);
   const [failure, setFailure] = useState<unknown>(null);
-  const language_ = hint[0] ?? language;
+  const inputLanguage: InputLanguage = hint ?? language;
   const ready = mode === "text" ? typed.trim().length > 0 : audio !== null;
   const locked = jobId !== null;
+
+  useEffect(() => {
+    if (!typed && !audio && !jobId && !hint && mode === "voice") clearDraft(DRAFT_KEY);
+    else writeDraft(DRAFT_KEY, { mode, hint, typed, audio, jobId, clipId, transcriptionId } satisfies DescribeDraft);
+  }, [mode, hint, typed, audio, jobId, clipId, transcriptionId]);
+
+  function done(id: string) {
+    clearDraft(DRAFT_KEY);
+    navigate(`/customer/requests/${id}/details`);
+  }
 
   async function run() {
     setFailure(null);
@@ -49,11 +74,11 @@ export function DescribeJobPage() {
       if (mode === "text") {
         if (!id) {
           setBusy("saving");
-          id = (await jobsApi.createTextJob(typed.trim(), language_)).id;
+          id = (await jobsApi.createTextJob(typed.trim(), inputLanguage)).id;
           setJobId(id);
         }
         setBusy("interpreting");
-        const interpretation = await voiceApi.interpretText("job_description", typed.trim(), language_);
+        const interpretation = await voiceApi.interpretText("job_description", typed.trim(), inputLanguage);
         await jobsApi.attachSource(id, { interpretation_id: interpretation.id });
       } else {
         let clip = clipId;
@@ -62,23 +87,23 @@ export function DescribeJobPage() {
           setBusy("saving");
           clip = (await voiceApi.uploadClip(audio.blob, audio.filename, "job_description", audio.source)).id;
           setClipId(clip);
-          id = (await jobsApi.createVoiceJob(clip, language_)).id;
+          id = (await jobsApi.createVoiceJob(clip, inputLanguage)).id;
           setJobId(id);
         }
         let transcription = transcriptionId;
         if (!transcription) {
           setBusy("transcribing");
-          const result = await voiceApi.transcribe(clip, language_);
+          const result = await voiceApi.transcribe(clip, inputLanguage);
           await jobsApi.attachSource(id, { transcription_id: result.id });
           if (result.no_speech || !result.text.trim()) throw new LocalMessage("jobs.describe.noSpeech");
           transcription = result.id;
           setTranscriptionId(transcription);
         }
         setBusy("interpreting");
-        const interpretation = await voiceApi.interpretTranscription("job_description", transcription, language_);
+        const interpretation = await voiceApi.interpretTranscription("job_description", transcription, inputLanguage);
         await jobsApi.attachSource(id, { interpretation_id: interpretation.id });
       }
-      navigate(`/customer/requests/${id}/details`);
+      done(id);
     } catch (error) {
       setFailure(error);
     } finally {
@@ -95,90 +120,108 @@ export function DescribeJobPage() {
     setFailure(null);
   }
 
-  const languageOptions = (["ur", "en"] as const).map((code) => ({
-    value: code,
-    label: code === "ur" ? "اردو" : "English",
-    lang: code,
-    icon: <Languages className="size-7" aria-hidden />,
-  }));
+  // A draft was already created (an earlier attempt, maybe before a visit elsewhere): retry, go on, or start over.
+  const stuck = failure !== null || (locked && busy === null);
+  const choice = (value: "voice" | "text", title: string, icon: ReactNode) => (
+    <button key={value} type="button" disabled={locked} aria-pressed={mode === value} onClick={() => setMode(value)}
+      className={`inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-lg px-4 font-bold transition-colors disabled:opacity-60 sm:flex-none sm:min-w-36 ${
+        mode === value ? "bg-white text-primary shadow-sm ring-1 ring-primary/30" : "text-muted hover:text-primary"}`}>
+      {icon}
+      <span>{title}</span>
+    </button>
+  );
 
   return (
-    <div className="card space-y-5 p-4 sm:p-6">
-      <StepHeader step={1} flow="request" title={t("jobs.describe.title")} />
-      <p>{t("jobs.describe.intro")}</p>
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,44rem)_minmax(14rem,20rem)] lg:gap-10">
+      <div className="min-w-0 space-y-5">
+        <StepHeader step={1} flow="request" title={t("jobs.describe.title")} />
 
-      <IconTileGroup label={t("jobs.describe.languageLabel")} mode="single" options={languageOptions} value={hint} onChange={(next) => !locked && setHint(next)} />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex w-full rounded-xl bg-[#eef1f7] p-1 sm:w-auto" role="group" aria-label={t("jobs.describe.howLabel")}>
+            {choice("voice", t("jobs.describe.speak"), <Mic className="size-5" aria-hidden />)}
+            {choice("text", t("jobs.describe.type"), <Keyboard className="size-5" aria-hidden />)}
+          </div>
+          <div className="flex items-center gap-2 text-sm" role="group" aria-label={t("jobs.describe.languageLabel")}>
+            <span className="text-muted">{t("jobs.describe.languageShort")}</span>
+            {(["ur", "en"] as const).map((code) => (
+              <button key={code} type="button" lang={code} disabled={locked} aria-pressed={inputLanguage === code} onClick={() => setHint(code)}
+                className={`min-h-11 rounded-lg border px-3 font-bold disabled:opacity-60 ${
+                  inputLanguage === code ? "border-primary bg-primary-soft text-primary" : "border-line bg-white text-muted hover:border-primary/50"}`}>
+                {code === "ur" ? "اردو" : "English"}
+              </button>
+            ))}
+          </div>
+        </div>
 
-      {/* Speak and Type are equal choices; switching keeps what was recorded or typed. */}
-      <div className="grid grid-cols-2 gap-3" role="group" aria-label={t("jobs.describe.howLabel")}>
-        {([
-          ["voice", t("jobs.describe.speak"), t("jobs.describe.speakHint"), <Mic key="m" className="size-7" aria-hidden />],
-          ["text", t("jobs.describe.type"), t("jobs.describe.typeHint"), <Keyboard key="k" className="size-7" aria-hidden />],
-        ] as const).map(([value, title, hint, icon]) => (
-          <button key={value} type="button" disabled={locked} aria-pressed={mode === value}
-            aria-labelledby={`mode-${value}-title`} aria-describedby={`mode-${value}-hint`}
-            onClick={() => setMode(value)}
-            className={`flex min-h-28 flex-col items-center justify-center gap-1.5 rounded-2xl border-2 p-3 text-center transition-colors disabled:opacity-60 ${
-              mode === value ? "border-primary bg-primary-soft text-primary" : "border-line bg-white hover:border-primary/50"
-            }`}>
-            {icon}
-            <span id={`mode-${value}-title`} className="text-lg font-bold">{title}</span>
-            <span id={`mode-${value}-hint`} className="text-xs text-muted sm:text-sm">{hint}</span>
-          </button>
-        ))}
+        {mode === "voice" ? (
+          <div className="space-y-2">
+            <VoiceCapture audio={audio} onAudio={setAudio} maxSeconds={limits.max_audio_seconds} maxBytes={limits.max_audio_bytes} disabled={locked || busy !== null} />
+            <p className="text-sm text-muted">{t("jobs.describe.voiceNote")}</p>
+          </div>
+        ) : (
+          <TextArea
+            label={t("jobs.describe.textLabel")}
+            hint={t("jobs.describe.textHint")}
+            value={typed}
+            onChange={setTyped}
+            disabled={locked || busy !== null}
+            maxLength={2000}
+            rows={5}
+            dir={typed ? textDir(typed) : inputLanguage === "ur" ? "rtl" : "ltr"}
+          />
+        )}
+
+        {busy && (
+          <p role="status" className="font-bold">
+            {t(`jobs.describe.busy.${busy}`)}
+          </p>
+        )}
+
+        {failure !== null ? (
+          <Alert tone="warning" title={t("jobs.describe.failedTitle")}>
+            <p>{describeError(failure, t)}</p>
+            <p>{jobId ? t("jobs.describe.draftKept") : t("jobs.describe.nothingSaved")}</p>
+          </Alert>
+        ) : stuck ? (
+          <Alert tone="info">{t("jobs.describe.draftKept")}</Alert>
+        ) : null}
+
+        {stuck ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button icon={<RefreshCw className="size-5" aria-hidden />} onClick={() => void run()} disabled={busy !== null}>
+              {t("common.retry")}
+            </Button>
+            {jobId && (
+              <Button variant="secondary" icon={<ArrowRight className="size-5 rtl:-scale-x-100" aria-hidden />} onClick={() => done(jobId)}>
+                {t("jobs.describe.continueManually")}
+              </Button>
+            )}
+            <Button variant="ghost" icon={<RotateCcw className="size-5" aria-hidden />} onClick={startOver}>
+              {t("jobs.describe.startOver")}
+            </Button>
+          </div>
+        ) : (
+          <Button className="w-full sm:w-auto sm:min-w-56" disabled={!ready} loading={busy !== null} loadingLabel={busy ? t(`jobs.describe.busy.${busy}`) : undefined}
+            icon={<ArrowRight className="size-5 rtl:-scale-x-100" aria-hidden />} onClick={() => void run()}>
+            {t("jobs.describe.continue")}
+          </Button>
+        )}
       </div>
 
-      {mode === "voice" ? (
-        <div className="space-y-2">
-          <p className="text-sm text-muted">{t("jobs.describe.voiceNote")}</p>
-          <VoiceCapture audio={audio} onAudio={setAudio} maxSeconds={limits.max_audio_seconds} maxBytes={limits.max_audio_bytes} disabled={locked || busy !== null} />
-        </div>
-      ) : (
-        <TextArea
-          label={t("jobs.describe.textLabel")}
-          hint={t("jobs.describe.textHint")}
-          value={typed}
-          onChange={setTyped}
-          disabled={locked || busy !== null}
-          maxLength={2000}
-          rows={5}
-          dir={typed ? textDir(typed) : language === "ur" ? "rtl" : "ltr"}
-        />
-      )}
-
-      {busy && (
-        <p role="status" className="font-bold">
-          {t(`jobs.describe.busy.${busy}`)}
-        </p>
-      )}
-
-      {failure !== null && (
-        <Alert tone="warning" title={t("jobs.describe.failedTitle")}>
-          <p>{describeError(failure, t)}</p>
-          <p>{jobId ? t("jobs.describe.draftKept") : t("jobs.describe.nothingSaved")}</p>
-        </Alert>
-      )}
-
-      {failure !== null ? (
-        <div className="grid gap-2">
-          <Button icon={<RefreshCw className="size-5" aria-hidden />} onClick={() => void run()} disabled={busy !== null}>
-            {t("common.retry")}
-          </Button>
-          {jobId && (
-            <Button variant="secondary" icon={<ArrowRight className="size-5 rtl:-scale-x-100" aria-hidden />} onClick={() => navigate(`/customer/requests/${jobId}/details`)}>
-              {t("jobs.describe.continueManually")}
-            </Button>
-          )}
-          <Button variant="ghost" icon={<RotateCcw className="size-5" aria-hidden />} onClick={startOver}>
-            {t("jobs.describe.startOver")}
-          </Button>
-        </div>
-      ) : (
-        <Button fullWidth disabled={!ready} loading={busy !== null} loadingLabel={busy ? t(`jobs.describe.busy.${busy}`) : undefined}
-          icon={<ArrowRight className="size-5 rtl:-scale-x-100" aria-hidden />} onClick={() => void run()}>
-          {t("jobs.describe.continue")}
-        </Button>
-      )}
+      <aside aria-labelledby="describe-tips" className="hidden space-y-3 rounded-2xl border border-line bg-white p-4 lg:block">
+        <h2 id="describe-tips" className="font-bold">{t("jobs.describe.tipsTitle")}</h2>
+        <ul className="space-y-2 text-sm">
+          {([
+            [<Wrench key="w" className="size-4" aria-hidden />, t("jobs.describe.tip.work")],
+            [<MapPin key="m" className="size-4" aria-hidden />, t("jobs.describe.tip.area")],
+            [<CalendarClock key="c" className="size-4" aria-hidden />, t("jobs.describe.tip.time")],
+            [<Wallet key="b" className="size-4" aria-hidden />, t("jobs.describe.tip.budget")],
+          ] as const).map(([icon, text]) => (
+            <li key={text} className="flex items-center gap-2"><span className="text-primary">{icon}</span>{text}</li>
+          ))}
+        </ul>
+        <p className="text-xs text-muted">{t("jobs.describe.tipPrivacy")}</p>
+      </aside>
     </div>
   );
 }

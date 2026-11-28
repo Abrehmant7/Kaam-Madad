@@ -163,7 +163,7 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
   const maxDate = karachiDate(90);
 
   return (
-    <form onSubmit={onSubmit} noValidate className="card space-y-6 p-4 sm:p-6">
+    <form onSubmit={onSubmit} noValidate className="space-y-5">
       <StepHeader step={2} flow="request" title={t("jobs.details.title")} />
       <p className="text-muted">{t("jobs.details.intro")}</p>
 
@@ -188,6 +188,9 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
 
       {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}
       {saved && <Alert tone="success">{t("jobs.details.saved")}</Alert>}
+
+      <div className="grid items-start gap-5 xl:grid-cols-2">
+      <div className="card min-w-0 space-y-6 p-4 sm:p-6">
 
       <div className="space-y-1">
         <TextArea label={t("jobs.field.description")} hint={t("jobs.field.descriptionHint")} value={description} onChange={changeDescription} errors={errors.description} maxLength={2000} rows={4} dir={textDir(description)} />
@@ -232,7 +235,9 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
       </div>
       {city[0] && <IconTileGroup label={t("jobs.field.area")} mode="single" options={areaOptions} value={area} onChange={setArea} errors={errors.area} />}
 
-      <fieldset className="space-y-3 card p-4">
+      </div>
+      <div className="card min-w-0 space-y-6 p-4 sm:p-6">
+      <fieldset className="space-y-3">
         <legend className="flex items-center gap-2 px-1 font-bold">
           <Clock className="size-5" aria-hidden />
           {t("jobs.field.when")}
@@ -244,7 +249,7 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
         )}
         <p className="text-sm text-muted">{t("jobs.time.zoneNote")}</p>
         <TextField label={t("jobs.field.date")} type="date" value={date} onChange={setDate} min={minDate} max={maxDate} dir="ltr" />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid max-w-md grid-cols-2 gap-3">
           <TextField label={t("jobs.field.startTime")} type="time" value={startTime} onChange={setStartTime} dir="ltr" />
           <TextField label={t("jobs.field.endTime")} type="time" value={endTime} onChange={setEndTime} dir="ltr" />
         </div>
@@ -284,11 +289,14 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
         <JobPhotos jobId={job.id} photos={photos} editable onChange={setPhotos} />
       </section>
 
-      <div className="grid gap-2">
-        <Button type="submit" fullWidth loading={busy === "continue"} loadingLabel={t("onboarding.saving")} disabled={busy !== null} icon={<ArrowRight className="size-5 rtl:-scale-x-100" aria-hidden />}>
+      </div>
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button type="submit" className="sm:min-w-56" loading={busy === "continue"} loadingLabel={t("onboarding.saving")} disabled={busy !== null} icon={<ArrowRight className="size-5 rtl:-scale-x-100" aria-hidden />}>
           {t("jobs.details.toReview")}
         </Button>
-        <Button variant="secondary" fullWidth loading={busy === "save"} loadingLabel={t("onboarding.saving")} disabled={busy !== null} icon={<Save className="size-5" aria-hidden />} onClick={() => void save("save")}>
+        <Button variant="secondary" loading={busy === "save"} loadingLabel={t("onboarding.saving")} disabled={busy !== null} icon={<Save className="size-5" aria-hidden />} onClick={() => void save("save")}>
           {t("jobs.details.saveDraft")}
         </Button>
       </div>

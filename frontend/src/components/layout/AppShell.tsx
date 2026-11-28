@@ -1,6 +1,6 @@
-import { FlaskConical, HardHat, House, LogIn, LogOut, ShieldCheck } from "lucide-react";
+import { HardHat, House, LogIn, LogOut, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useMatches } from "react-router";
+import { Link, Outlet, useLocation } from "react-router";
 
 import type { AccountUser } from "../../api/auth";
 import { useAuth } from "../../auth/context";
@@ -12,19 +12,24 @@ import { Alert } from "../ui/Alert";
 import { Button } from "../ui/Button";
 import { LanguageSwitch } from "../ui/LanguageSwitch";
 import { LogoMark } from "../icons";
+import { clearDrafts } from "../../features/drafts";
 import { isActive, navigationFor, type NavItem } from "./navigation";
 
-/** Page widths, chosen per route (`handle.width`): task forms stay narrow, dashboards and chat use the space. */
-const WIDTHS = { narrow: "max-w-2xl", medium: "max-w-4xl", wide: "max-w-6xl" } as const;
-export type PageWidth = keyof typeof WIDTHS;
-
-function usePageWidth(): PageWidth {
-  const matches = useMatches();
-  for (let index = matches.length - 1; index >= 0; index -= 1) {
-    const width = (matches[index]?.handle as { width?: PageWidth } | undefined)?.width;
-    if (width) return width;
-  }
-  return "narrow";
+/** True while a text field has focus: on phones the on-screen keyboard is open, so the bottom bar steps aside and
+ * never covers the field or the button under it. */
+function useTyping(): boolean {
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    const editable = (node: EventTarget | null) =>
+      node instanceof HTMLElement && (node.isContentEditable || node.tagName === "TEXTAREA" ||
+        (node.tagName === "INPUT" && !["button", "checkbox", "radio", "submit", "file", "range", "color"].includes((node as HTMLInputElement).type)));
+    const onIn = (event: FocusEvent) => setTyping(editable(event.target));
+    const onOut = (event: FocusEvent) => setTyping(editable(event.relatedTarget));
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    return () => { document.removeEventListener("focusin", onIn); document.removeEventListener("focusout", onOut); };
+  }, []);
+  return typing;
 }
 
 /** Dashboard section links (`/worker#bookings`): scroll to the section once it has loaded. */
@@ -87,14 +92,15 @@ function RoleLabel({ user }: { user: AccountUser }) {
 
 /**
  * Page frame. Signed-in users get a role-aware sidebar on desktop and a bottom bar with the four most useful
- * destinations on phones; the language switch stays in the top bar on every screen, and a demo deployment keeps its
- * label. Logical (start/end) spacing works in RTL and LTR.
+ * destinations on phones; the language switch stays in the top bar on every screen. Every page gets the full width
+ * beside the sidebar: pages keep prose and input groups to comfortable line lengths themselves. Logical (start/end)
+ * spacing works in RTL and LTR.
  */
 export function AppShell() {
   const { t } = useI18n();
-  const { state, config, user, logout, retry } = useAuth();
+  const { state, user, logout, retry } = useAuth();
   const { pathname, hash } = useLocation();
-  const width = usePageWidth();
+  const typing = useTyping();
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<unknown>(null);
   useSectionScroll();
@@ -106,6 +112,7 @@ export function AppShell() {
       // Protected pages redirect to the landing page themselves once logged out;
       // public pages (e.g. the catalog) simply stay where they are.
       await logout();
+      clearDrafts();
     } catch (error) {
       setLogoutError(error);
     } finally {
@@ -115,7 +122,6 @@ export function AppShell() {
 
   const nav = user ? navigationFor(user) : null;
   const home = user ? homePathFor(user) : PATHS.landing;
-  const demo = config?.deployment_mode === "demo";
   const withBar = Boolean(nav && nav.quick.length);
 
   const logoutButton = (extra = "") => (
@@ -169,7 +175,7 @@ export function AppShell() {
 
       <div className={user && nav ? "lg:ps-64" : ""}>
         <header className="sticky top-0 z-30 border-b border-line bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
-          <div className={`mx-auto flex w-full items-center justify-between gap-2 px-3 py-2 sm:px-4 lg:px-8 ${WIDTHS.wide}`}>
+          <div className="flex w-full items-center justify-between gap-2 px-3 py-2 sm:px-6 lg:px-8">
             <div className={user && nav ? "lg:hidden" : ""}>
               <Brand to={home} compact />
             </div>
@@ -182,12 +188,6 @@ export function AppShell() {
               </p>
             )}
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-              {demo && (
-                <span className="hidden items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-bold text-warning-strong sm:inline-flex">
-                  <FlaskConical className="size-4" aria-hidden />
-                  {t("demo.short")}
-                </span>
-              )}
               <LanguageSwitch />
               {user ? (
                 logoutButton()
@@ -201,20 +201,12 @@ export function AppShell() {
               )}
             </div>
           </div>
-          {demo && (
-            <div role="note" className="border-t border-accent/50 bg-accent-soft">
-              <p className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-1.5 text-sm font-bold text-warning-strong lg:px-8">
-                <FlaskConical className="size-4 shrink-0" aria-hidden />
-                <span>{t("demo.banner")}</span>
-              </p>
-            </div>
-          )}
         </header>
 
         <main
           id="main-content"
           tabIndex={-1}
-          className={`mx-auto w-full ${WIDTHS[width]} space-y-4 px-4 pt-6 outline-none lg:px-8 ${withBar ? "pb-28 lg:pb-12" : "pb-12"}`}
+          className={`w-full space-y-4 px-4 pt-5 outline-none sm:px-6 lg:px-8 lg:pt-6 ${withBar ? "pb-28 lg:pb-12" : "pb-12"}`}
         >
           {logoutError !== null && <Alert tone="danger" title={t("auth.logoutFailed")}>{describeError(logoutError, t)}</Alert>}
           {state.status === "error" && (
@@ -229,7 +221,7 @@ export function AppShell() {
         </main>
       </div>
 
-      {user && nav && withBar && (
+      {user && nav && withBar && !typing && (
         <nav
           aria-label={t("nav.quickMenu")}
           className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"

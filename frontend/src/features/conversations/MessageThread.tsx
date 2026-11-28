@@ -1,5 +1,5 @@
 import { Mic, MessageSquareText, Play, Send, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError } from "../../api/client";
 import * as convApi from "../../api/conversations";
@@ -13,6 +13,7 @@ import { useI18n } from "../../i18n/context";
 import { describeError } from "../../i18n/errors";
 import { textDir } from "../jobs/text";
 import { formatTime } from "../jobs/time";
+import { clearDraft, readDraft, writeDraft } from "../drafts";
 import { type CapturedAudio, VoiceCapture } from "../voice/VoiceCapture";
 
 const POLL_MS = 5000;
@@ -78,25 +79,46 @@ function Bubble({ message }: { message: convApi.Message }) {
   );
 }
 
-/** Messages (paginated, polled) and the composer. Polling only appends; the draft being typed is untouched. */
+type VoiceDraft = { clipId: string; transcriptionId: string | null; proposal: string | null; failed: boolean };
+interface ComposerDraft { mode: "text" | "voice"; text: string; audio: CapturedAudio | null; voice: VoiceDraft | null; caption: string; pendingId: string | null }
+
+/**
+ * Messages (paginated, polled) and the composer. Polling only appends; the draft being typed is untouched. The
+ * unsent text, recording and caption stay in memory while the user visits the quote or booking screen.
+ */
 export function MessageThread({ invitationId, canWrite, onActivity, onClosed }: {
   invitationId: string; canWrite: boolean; onActivity?: () => void; onClosed?: () => void;
 }) {
   const { t, language } = useI18n();
   const { config } = useAuth();
   const limits = config?.voice_limits ?? DEFAULT_LIMITS;
+  const draftKey = `chat:${invitationId}`;
+  const [saved] = useState(() => readDraft<ComposerDraft>(draftKey));
   const [messages, setMessages] = useState<convApi.Message[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadFailure, setLoadFailure] = useState<unknown>(null);
-  const [mode, setMode] = useState<"text" | "voice">("text");
-  const [text, setText] = useState("");
-  const [audio, setAudio] = useState<CapturedAudio | null>(null);
-  const [caption, setCaption] = useState("");
-  const [voice, setVoice] = useState<{ clipId: string; transcriptionId: string | null; proposal: string | null; failed: boolean } | null>(null);
+  const [mode, setMode] = useState<"text" | "voice">(saved?.mode ?? "text");
+  const [text, setText] = useState(saved?.text ?? "");
+  const [audio, setAudio] = useState<CapturedAudio | null>(saved?.audio ?? null);
+  const [caption, setCaption] = useState(saved?.caption ?? "");
+  const [voice, setVoice] = useState<VoiceDraft | null>(saved?.voice ?? null);
   const [busy, setBusy] = useState<"caption" | "send" | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
-  const pendingId = useRef<string | null>(null); // reused for retries of the same send
+  const pendingId = useRef<string | null>(saved?.pendingId ?? null); // reused for retries of the same send
   const lastId = useRef<string | null>(null);
+  const scroller = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!text && !audio && !voice && !caption && mode === "text") clearDraft(draftKey);
+    else writeDraft(draftKey, { mode, text, audio, voice, caption, pendingId: pendingId.current } satisfies ComposerDraft);
+  }, [draftKey, mode, text, audio, voice, caption, busy]);
+
+  // Keep the newest message in view when the thread scrolls on its own (desktop).
+  const newest = messages.at(-1)?.id;
+  useEffect(() => {
+    const node = scroller.current;
+    if (node && node.scrollHeight > node.clientHeight) node.scrollTop = node.scrollHeight;
+  }, [newest]);
 
   const merge = useCallback((incoming: convApi.Message[], position: "end" | "start") => {
     setMessages((current) => {
@@ -177,6 +199,7 @@ export function MessageThread({ invitationId, canWrite, onActivity, onClosed }: 
       setAudio(null);
       setVoice(null);
       setCaption("");
+      clearDraft(draftKey);
       onActivity?.();
     } catch (error) {
       setFailure(error); // the same send ID is kept, so pressing Send again cannot duplicate
@@ -186,41 +209,50 @@ export function MessageThread({ invitationId, canWrite, onActivity, onClosed }: 
     }
   }
 
+  const modeButton = (value: "text" | "voice", label: string, icon: ReactNode) => (
+    <button type="button" aria-pressed={mode === value} onClick={() => setMode(value)}
+      className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-4 text-sm font-bold transition-colors ${
+        mode === value ? "bg-white text-primary shadow-sm" : "text-muted hover:text-primary"}`}>
+      {icon}{label}
+    </button>
+  );
+
   return (
-    <section aria-labelledby="messages-heading" className="card space-y-3 p-4">
-      <h2 id="messages-heading" className="flex items-center gap-2 text-lg font-bold">
-        <MessageSquareText className="size-5" aria-hidden />
-        {t("conv.messages")}
-      </h2>
+    <section aria-labelledby="messages-heading" className="card flex flex-col gap-3 p-3 sm:p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+        <h2 id="messages-heading" className="flex items-center gap-2 text-lg font-bold">
+          <MessageSquareText className="size-5" aria-hidden />
+          {t("conv.messages")}
+        </h2>
+        <p className="text-xs text-muted">{t("conv.privacy")}</p>
+      </div>
       {loadFailure !== null && <Alert tone="danger">{describeError(loadFailure, t)}</Alert>}
-      {hasMore && (
-        <Button variant="ghost" onClick={() => void loadEarlier()}>
-          {t("conv.loadEarlier")}
-        </Button>
-      )}
-      {messages.length === 0 ? (
-        <p className="text-muted">{t("conv.empty")}</p>
-      ) : (
-        <ul className="space-y-2" aria-live="polite">
-          {messages.map((message) => (
-            <Bubble key={message.id} message={message} />
-          ))}
-        </ul>
-      )}
+      <div ref={scroller} className="space-y-2 lg:max-h-[max(18rem,calc(100dvh-25rem))] lg:overflow-y-auto lg:pe-1">
+        {hasMore && (
+          <Button variant="ghost" onClick={() => void loadEarlier()}>
+            {t("conv.loadEarlier")}
+          </Button>
+        )}
+        {messages.length === 0 ? (
+          <p className="text-muted">{t("conv.empty")}</p>
+        ) : (
+          <ul className="space-y-2" aria-live="polite">
+            {messages.map((message) => (
+              <Bubble key={message.id} message={message} />
+            ))}
+          </ul>
+        )}
+      </div>
 
       {canWrite ? (
-        <div className="space-y-3 rounded-2xl border border-line bg-white p-3">
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant={mode === "text" ? "primary" : "secondary"} aria-pressed={mode === "text"} icon={<MessageSquareText className="size-5" aria-hidden />} onClick={() => setMode("text")}>
-              {t("conv.text")}
-            </Button>
-            <Button variant={mode === "voice" ? "primary" : "secondary"} aria-pressed={mode === "voice"} icon={<Mic className="size-5" aria-hidden />} onClick={() => setMode("voice")}>
-              {t("conv.voice")}
-            </Button>
+        <div className="space-y-3 border-t border-line pt-3">
+          <div className="inline-flex rounded-xl bg-surface p-1" role="group" aria-label={t("conv.composerMode")}>
+            {modeButton("text", t("conv.text"), <MessageSquareText className="size-4" aria-hidden />)}
+            {modeButton("voice", t("conv.voice"), <Mic className="size-4" aria-hidden />)}
           </div>
           {mode === "text" ? (
             <TextArea label={t("conv.messageLabel")} hint={t("conv.privacyHint")} value={text} onChange={(value) => { setText(value); pendingId.current = null; }}
-              maxLength={1000} rows={3} dir={text ? textDir(text) : language === "ur" ? "rtl" : "ltr"} />
+              maxLength={1000} rows={2} dir={text ? textDir(text) : language === "ur" ? "rtl" : "ltr"} />
           ) : (
             <div className="space-y-3">
               <VoiceCapture audio={audio} onAudio={takeAudio}
@@ -245,7 +277,7 @@ export function MessageThread({ invitationId, canWrite, onActivity, onClosed }: 
             </div>
           )}
           {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}
-          <Button fullWidth loading={busy === "send"} loadingLabel={t("conv.sending")} icon={<Send className="size-5" aria-hidden />}
+          <Button className="w-full sm:w-auto sm:min-w-40" loading={busy === "send"} loadingLabel={t("conv.sending")} icon={<Send className="size-5" aria-hidden />}
             disabled={busy !== null || (mode === "text" ? !text.trim() : !voice)} onClick={() => void send()}>
             {mode === "voice" && voice && !caption.trim() ? t("conv.sendWithoutCaption") : t("conv.send")}
           </Button>

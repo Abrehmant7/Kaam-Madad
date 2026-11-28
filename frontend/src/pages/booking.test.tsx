@@ -54,7 +54,7 @@ const customer = () => makeUser({ role: "customer", preferred_language: "en" });
 const worker = () => makeUser({ role: "worker", preferred_language: "en" });
 
 describe("accepting a quote", () => {
-  it("shows the exact terms and unknown costs, then books with an idempotency key", async () => {
+  it("chat → View quote → accept: shows the exact terms and unknown costs, books with an idempotency key, then opens Work progress", async () => {
     const calls = mockApi({
       ...bootHandlers(customer()), ...catalog,
       "GET /api/v1/conversations/inv-1/": jsonResponse(header()),
@@ -64,6 +64,8 @@ describe("accepting a quote", () => {
       "GET /api/v1/bookings/b-1/": jsonResponse(booking()),
     });
     const { router } = renderApp("/conversations/inv-1", "en");
+    await userEvent.click(await screen.findByRole("link", { name: en["quote.view"] }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/conversations/inv-1/quote"));
     await userEvent.click(await screen.findByRole("button", { name: en["accept.open"] }));
     const review = screen.getByRole("region", { name: en["accept.title"].replace("{version}", "2") });
     expect(within(review).getByText(en["accept.unknownPart.materials"])).toBeInTheDocument(); // unknown is never shown as zero
@@ -74,8 +76,17 @@ describe("accepting a quote", () => {
     const post = calls.find((call) => call.method === "POST" && call.path === "/api/v1/bookings/")!;
     expect(post.body).toMatchObject({ invitation_id: "inv-1", quote_id: "q-1", version: 2 });
     expect((post.body as { idempotency_key: string }).idempotency_key).toMatch(/^[0-9a-f-]{36}$/);
-    expect(await screen.findByRole("heading", { level: 1, name: en["booking.title"] })).toBeInTheDocument();
-  }, 15000);
+    // Work progress: the real status for a new booking, with the customer's next step and the earlier stages one tap away.
+    expect(await screen.findByRole("heading", { level: 1, name: en["stage.work"] })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: en["booking.status.confirmed"] })).toBeInTheDocument();
+    expect(screen.getByText(en["arrival.customerWaiting"])).toBeInTheDocument();
+    const nav = within(screen.getByRole("navigation", { name: en["stage.label"] }));
+    expect(nav.getByText(en["stage.work"]).closest("[aria-current]")).toHaveAttribute("aria-current", "step");
+    expect(nav.getByText(en["stage.quote.accepted"].replace("{version}", "2"))).toBeInTheDocument();
+    expect(nav.getByRole("link", { name: new RegExp(en["stage.chat"]) })).toHaveAttribute("href", "/conversations/inv-1");
+    expect(nav.getByRole("link", { name: new RegExp(en["stage.quote"]) })).toHaveAttribute("href", "/conversations/inv-1/quote");
+    expect(screen.queryByRole("button", { name: en["arrival.markArrived"] })).not.toBeInTheDocument(); // a worker action
+  }, 20000);
 
   it("after a dropped connection it reloads the server state before offering to try again with the same key", async () => {
     let posts = 0;
@@ -88,7 +99,7 @@ describe("accepting a quote", () => {
       "POST /api/v1/bookings/": () => { posts += 1; throw new TypeError("Failed to fetch"); },
       "GET /api/v1/bookings/b-1/": jsonResponse(booking()),
     });
-    const { router } = renderApp("/conversations/inv-1", "en");
+    const { router } = renderApp("/conversations/inv-1/quote", "en");
     await userEvent.click(await screen.findByRole("button", { name: en["accept.open"] }));
     await userEvent.click(screen.getByRole("button", { name: en["accept.confirm"] }));
     expect(await screen.findByText(en["accept.unconfirmedTitle"])).toBeInTheDocument(); // server says: not booked yet
@@ -108,7 +119,7 @@ describe("accepting a quote", () => {
       "GET /api/v1/conversations/inv-1/messages/": jsonResponse({ results: [], has_more_before: false }),
       "POST /api/v1/bookings/": jsonResponse(errorEnvelope("quote_not_current", "r1", { current_quote_id: "q-2", current_version: 3 }), 409),
     });
-    renderApp("/conversations/inv-1", "en");
+    renderApp("/conversations/inv-1/quote", "en");
     await userEvent.click(await screen.findByRole("button", { name: en["accept.open"] }));
     const before = loads;
     await userEvent.click(screen.getByRole("button", { name: en["accept.confirm"] }));
@@ -138,6 +149,8 @@ describe("booking screen", () => {
     renderApp("/bookings/b-1", "en");
     expect(await screen.findByText(en["booking.addressWorker"])).toBeInTheDocument();
     expect(screen.getByText("House 5, Street 9")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: en["booking.status.confirmed"] })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en["arrival.markArrived"] })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: en["arrival.markArrived"] }));
     const field = await screen.findByLabelText(en["arrival.codeLabel"]);
     await userEvent.type(field, "111111");
@@ -147,7 +160,8 @@ describe("booking screen", () => {
     await userEvent.clear(field);
     await userEvent.type(field, "482 913");
     await userEvent.click(screen.getByRole("button", { name: en["arrival.start"] }));
-    expect(await screen.findByText(en["booking.inProgressTitle"])).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: en["booking.status.in_progress"] })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en["completion.request"] })).toBeInTheDocument();
     expect(calls.filter((call) => call.path.endsWith("/start/")).map((call) => call.body)).toEqual([{ code: "111111" }, { code: "482913" }]);
   }, 15000);
 

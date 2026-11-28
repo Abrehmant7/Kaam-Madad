@@ -29,8 +29,11 @@ function RequestCard({ job, catalog }: { job: jobsApi.JobListItem; catalog: JobC
   return (
     <li className="space-y-2 rounded-xl border border-line bg-[#fbfcff] p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge tone={draft ? "neutral" : "success"}>{draft ? t("jobs.status.draft") : t("jobs.status.confirmed")}</StatusBadge>
-        {job.booking && <StatusBadge tone="info">{t(`booking.status.${job.booking.status}`)}</StatusBadge>}
+        {job.booking ? (
+          <StatusBadge tone="info">{t(`booking.status.${job.booking.status}`)}</StatusBadge>
+        ) : (
+          <StatusBadge tone={draft ? "neutral" : "success"}>{draft ? t("jobs.status.draft") : t("jobs.status.confirmed")}</StatusBadge>
+        )}
         <span className="font-bold">{task}</span>
       </div>
       {job.description && <p dir={textDir(job.description)} className="line-clamp-2 text-sm text-muted">{job.description}</p>}
@@ -44,10 +47,10 @@ function RequestCard({ job, catalog }: { job: jobsApi.JobListItem; catalog: JobC
         )}
       </p>
       <Link
-        to={draft ? `/customer/requests/${job.id}/details` : `/customer/requests/${job.id}`}
+        to={job.booking ? `/bookings/${job.booking.id}` : draft ? `/customer/requests/${job.id}/details` : `/customer/requests/${job.id}`}
         className="inline-flex min-h-11 items-center font-bold text-primary underline-offset-4 hover:underline"
       >
-        {draft ? t("jobs.list.continue") : t("jobs.list.open")}
+        {job.booking ? t("stage.openWork") : draft ? t("jobs.list.continue") : t("jobs.list.open")}
       </Link>
     </li>
   );
@@ -73,7 +76,6 @@ export function CustomerDashboardPage() {
               <House className="size-4" aria-hidden />
               {t("role.customer.badge")}
             </span>
-            {user.is_demo && <StatusBadge tone="warning">{t("demo.accountBadge")}</StatusBadge>}
           </div>
           <p className="flex flex-wrap items-center gap-1.5 text-sm text-[#dee7ff]">
             <span>{t("home.signedInAs")}</span>

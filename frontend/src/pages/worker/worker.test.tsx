@@ -107,7 +107,7 @@ describe("worker dashboard", () => {
     expect(screen.getByText("Ceiling fan installation")).toBeInTheDocument(); // main speciality label
     expect(screen.getByRole("link", { name: en["worker.profile.editWork"] })).toHaveAttribute("href", "/worker/setup/work");
     expect(screen.getByRole("link", { name: en["home.managePhone"] })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: en["worker.voiceIntro"] })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /voice/i })).not.toBeInTheDocument(); // the voice test page is a developer tool
   });
 });
 

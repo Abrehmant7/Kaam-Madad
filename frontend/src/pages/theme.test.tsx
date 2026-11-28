@@ -21,7 +21,7 @@ const booking = (status: string, role: "customer" | "worker", extra: Record<stri
 }) as never;
 
 describe("navigation", () => {
-  it("gives a worker role-aware destinations, a quick bar on phones, the language switch and the demo label", async () => {
+  it("gives a worker role-aware destinations, a quick bar on phones and the language switch, with no demo branding", async () => {
     mockApi({ ...bootHandlers(makeUser({ preferred_language: "en" })), ...workerHandlers(makeDashboard(null)),
       "GET /api/v1/bookings/": jsonResponse(page([])) });
     renderApp("/worker", "en");
@@ -36,7 +36,9 @@ describe("navigation", () => {
     expect(within(quick).getAllByRole("link")).toHaveLength(4);
     expect(within(quick).getByRole("link", { name: en["nav.home"] })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: en["nav.changeLanguage"].replace("{language}", "اردو") })).toBeInTheDocument();
-    expect(screen.getByText(en["demo.banner"])).toBeInTheDocument();
+    // A demo deployment (the test config) shows no global demo badge, banner or account label, and no developer tools.
+    expect(screen.queryByText(/demo/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /voice test/i })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: en["nav.logout"] })).toHaveLength(1);
   });
 
@@ -53,6 +55,35 @@ describe("navigation", () => {
     expect(await screen.findByText(en["next.customer.new.title"])).toBeInTheDocument();
     expect(screen.getByText(en["jobs.list.empty"])).toBeInTheDocument();
     expect(await screen.findByText(en["booking.list.empty"])).toBeInTheDocument();
+  });
+});
+
+describe("dashboard links open the stage the job has reached", () => {
+  it("customer: a booked request opens Work progress directly", async () => {
+    mockApi({ ...bootHandlers(makeUser({ role: "customer", preferred_language: "en" })), ...catalog,
+      "GET /api/v1/jobs/": jsonResponse(page([
+        { id: "c1", status: "confirmed", description: "Two fans", trade: "electrician", services: ["elec_fan_install"], city: "islamabad", area: "isb-g-9",
+          window_start: "2030-01-10T12:00:00Z", window_end: "2030-01-10T14:00:00Z", updated_at: "x", confirmed_at: "x", booking: { id: "b-7", status: "in_progress" } },
+      ])),
+      "GET /api/v1/bookings/": jsonResponse(page([])) });
+    renderApp("/customer", "en");
+    const requests = within(await screen.findByRole("region", { name: en["jobs.list.heading"] }));
+    expect(await requests.findByRole("link", { name: en["stage.openWork"] })).toHaveAttribute("href", "/bookings/b-7");
+    expect(requests.getByText(en["booking.status.in_progress"])).toBeInTheDocument();
+    expect(requests.queryByText(en["jobs.status.confirmed"])).not.toBeInTheDocument(); // one status, not two
+  });
+
+  it("worker: a booked invitation opens Work progress; an open one opens the invitation", async () => {
+    const job = { description: "x", trade: "electrician", services: ["elec_fan_install"], services_excluded: [], city: "islamabad", area: "isb-g-9",
+      window_start: "2030-01-10T12:00:00Z", window_end: "2030-01-10T14:00:00Z", budget_preference_pkr: null, has_photos: false };
+    const invitation = (id: string, booking: unknown) => ({ id, status: "active", created_at: "x", seen_at: null, closed_at: null, decline_reason: null, booking, job });
+    mockApi({ ...bootHandlers(makeUser({ preferred_language: "en" })), ...workerHandlers(makeDashboard(null)),
+      "GET /api/v1/invitations/": jsonResponse(page([invitation("inv-1", { id: "b-1", status: "confirmed" }), invitation("inv-2", null)])),
+      "GET /api/v1/bookings/": jsonResponse(page([])) });
+    renderApp("/worker", "en");
+    const inbox = within(await screen.findByRole("region", { name: en["inv.inbox.heading"] }));
+    expect(await inbox.findByRole("link", { name: en["stage.openWork"] })).toHaveAttribute("href", "/bookings/b-1");
+    expect(inbox.getByRole("link", { name: en["jobs.list.open"] })).toHaveAttribute("href", "/worker/invitations/inv-2");
   });
 });
 

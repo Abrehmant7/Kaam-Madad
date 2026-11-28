@@ -43,8 +43,9 @@ export function InvitationInbox() {
                     <span>{formatDate(item.job.window_start, language)}</span>
                     <Ltr>{`${formatTime(item.job.window_start, language)} – ${formatTime(item.job.window_end, language)}`}</Ltr>
                   </p>
-                  <Link to={`/worker/invitations/${item.id}`} className="inline-flex min-h-11 items-center font-bold text-primary underline-offset-4 hover:underline">
-                    {t("jobs.list.open")}
+                  <Link to={item.booking ? `/bookings/${item.booking.id}` : `/worker/invitations/${item.id}`}
+                    className="inline-flex min-h-11 items-center font-bold text-primary underline-offset-4 hover:underline">
+                    {item.booking ? t("stage.openWork") : t("jobs.list.open")}
                   </Link>
                 </li>
               ))}

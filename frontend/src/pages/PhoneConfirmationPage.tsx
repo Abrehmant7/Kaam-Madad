@@ -101,7 +101,7 @@ export function PhoneConfirmationPage() {
   const home = user ? homePathFor(user) : "/";
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-2xl space-y-5">
       <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("phone.title")}</h1>
 
       {params.get("welcome") === "1" && <Alert tone="success">{t("signup.success")}</Alert>}
@@ -128,7 +128,7 @@ export function PhoneConfirmationPage() {
 
           {!confirmed && provider?.available && (
             <section className="space-y-4 card p-4">
-              {provider.simulated && <Alert tone="demo">{t("phone.demoExplainer")}</Alert>}
+              {provider.simulated && <p className="text-sm text-muted">{t("phone.demoExplainer")}</p>}
 
               {demoCode && (
                 <div className="rounded-xl border-2 border-dashed border-accent bg-accent-soft p-3 text-center" aria-live="polite">

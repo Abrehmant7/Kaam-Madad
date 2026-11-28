@@ -45,15 +45,18 @@ export function JobDetailPage() {
         <Alert tone="warning">{t("jobs.detail.draftNote")}</Alert>
       )}
 
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+      <div className="min-w-0 space-y-4">
       <JobSummary job={job} catalog={catalog} />
       {confirmed && <ReadAloud text={speechText(job, catalog, language, t)} language={language} />}
       {job.photos.length > 0 && <JobPhotos jobId={job.id} photos={job.photos} editable={false} />}
       <OriginalInput job={job} />
+      </div>
 
-      <div className="grid gap-2">
+      <div className="grid gap-2 lg:sticky lg:top-24">
         {confirmed && job.booking && (
           <ButtonLink to={`/bookings/${job.booking.id}`} fullWidth icon={<CalendarCheck className="size-5" aria-hidden />}>
-            {t("booking.open")} · {t(`booking.status.${job.booking.status}`)}
+            {t("stage.openWork")} · {t(`booking.status.${job.booking.status}`)}
           </ButtonLink>
         )}
         {confirmed && !job.booking && (
@@ -69,6 +72,7 @@ export function JobDetailPage() {
         <ButtonLink to={PATHS.customer} variant="secondary" fullWidth icon={<ArrowLeft className="size-5 rtl:-scale-x-100" aria-hidden />}>
           {t("jobs.detail.back")}
         </ButtonLink>
+      </div>
       </div>
     </div>
   );

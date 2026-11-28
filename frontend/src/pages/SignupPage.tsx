@@ -76,7 +76,7 @@ export function SignupPage() {
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} noValidate className="card mx-auto max-w-lg space-y-5 p-5 sm:p-7">
+    <form onSubmit={(event) => void handleSubmit(event)} noValidate className="card max-w-4xl space-y-5 p-5 sm:p-7">
       {role[0] === "worker" ? (
         <StepHeader step={1} flow="worker" title={t("signup.title")} />
       ) : (
@@ -94,6 +94,8 @@ export function SignupPage() {
         errors={errors.role}
       />
 
+      <div className="grid items-start gap-5 md:grid-cols-2">
+      <div className="md:col-span-2 md:max-w-sm">
       <TextField
         label={t("signup.phoneLabel")}
         hint={t("signup.phoneHint")}
@@ -107,6 +109,8 @@ export function SignupPage() {
         maxLength={40}
         required
       />
+      </div>
+      <div className="space-y-3">
       <PasswordField
         label={t("signup.passwordLabel")}
         hint={t("signup.passwordHint")}
@@ -118,6 +122,7 @@ export function SignupPage() {
         required
       />
       <InstructionAudio id="signup_password" />
+      </div>
       <PasswordField
         label={t("signup.passwordConfirmLabel")}
         value={passwordConfirm}
@@ -127,6 +132,7 @@ export function SignupPage() {
         maxLength={128}
         required
       />
+      </div>
 
       <div className="space-y-1 text-sm text-muted">
         <p>{t("signup.languageNote", { language: LANGUAGE_META[language].nativeName })}</p>
@@ -138,7 +144,7 @@ export function SignupPage() {
 
       <Button
         type="submit"
-        fullWidth
+        className="w-full sm:w-auto sm:min-w-56"
         loading={submitting}
         loadingLabel={t("signup.submitting")}
         icon={<UserPlus className="size-5" aria-hidden />}

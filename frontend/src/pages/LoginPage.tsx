@@ -1,4 +1,4 @@
-import { LogIn, UserPlus } from "lucide-react";
+import { HardHat, House, LogIn, UserPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
@@ -48,7 +48,8 @@ export function LoginPage() {
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} noValidate className="card mx-auto max-w-lg space-y-5 p-5 sm:p-7">
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,34rem)_minmax(0,1fr)] lg:gap-8">
+    <form onSubmit={(event) => void handleSubmit(event)} noValidate className="card space-y-5 p-5 sm:p-7">
       <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("login.title")}</h1>
 
       {sessionExpired && !formError && <Alert tone="warning">{t("auth.sessionExpired")}</Alert>}
@@ -87,7 +88,7 @@ export function LoginPage() {
         {t("login.submit")}
       </Button>
 
-      <p className="flex flex-wrap items-center gap-2">
+      <p className="flex flex-wrap items-center gap-2 lg:hidden">
         <span>{t("login.noAccount")}</span>
         <Link to={PATHS.start} className="inline-flex min-h-11 items-center gap-1.5 font-bold text-primary underline-offset-4 hover:underline">
           <UserPlus className="size-5" aria-hidden />
@@ -95,5 +96,26 @@ export function LoginPage() {
         </Link>
       </p>
     </form>
+    {/* Desktop: the two ways to sign up beside the form, instead of empty space. */}
+    <section aria-labelledby="new-here" className="hidden space-y-3 lg:block">
+      <h2 id="new-here" className="text-lg font-bold">{t("login.noAccount")}</h2>
+      <div className="grid gap-3 xl:grid-cols-2">
+        <Link to={`${PATHS.signup}?role=worker`} className="card flex items-start gap-3 p-4 hover:border-primary/50">
+          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-warning-strong"><HardHat className="size-6" aria-hidden /></span>
+          <span>
+            <span className="block font-bold">{t("landing.needWork")}</span>
+            <span className="block text-sm text-muted">{t("landing.needWork.hint")}</span>
+          </span>
+        </Link>
+        <Link to={`${PATHS.signup}?role=customer`} className="card flex items-start gap-3 p-4 hover:border-primary/50">
+          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary"><House className="size-6" aria-hidden /></span>
+          <span>
+            <span className="block font-bold">{t("landing.needWorker")}</span>
+            <span className="block text-sm text-muted">{t("landing.needWorker.hint")}</span>
+          </span>
+        </Link>
+      </div>
+    </section>
+    </div>
   );
 }

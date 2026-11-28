@@ -4,9 +4,7 @@ import { Link } from "react-router";
 
 import heroImage from "../assets/hero-electrician.webp";
 import { PATHS } from "../auth/paths";
-import { InfoIcon } from "../components/icons";
 import { ButtonLink } from "../components/ui/Button";
-import { ServerStatusCard } from "../features/health/ServerStatusCard";
 import { useI18n } from "../i18n/context";
 
 /** Landing: two clear entry points ("I need work" / "I need a worker"), then how it works. No sample people or numbers. */
@@ -79,21 +77,10 @@ export function LandingPage() {
         </ol>
       </section>
 
-      <aside aria-labelledby="dev-notice-title" className="flex items-start gap-3 rounded-xl border border-accent/60 bg-accent-soft p-4">
-        <InfoIcon className="mt-1 size-6 shrink-0 text-warning-strong" />
-        <div>
-          <h2 id="dev-notice-title" className="font-bold">{t("landing.devNotice.title")}</h2>
-          <p>{t("landing.devNotice.body")}</p>
-        </div>
-      </aside>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <ServerStatusCard />
-        <Link to={PATHS.catalog} className="card flex min-h-11 items-center gap-2 p-4 font-bold text-primary hover:border-primary/50">
-          <List className="size-5" aria-hidden />
-          {t("landing.catalogLink")}
-        </Link>
-      </div>
+      <Link to={PATHS.catalog} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
+        <List className="size-5" aria-hidden />
+        {t("landing.catalogLink")}
+      </Link>
     </div>
   );
 }

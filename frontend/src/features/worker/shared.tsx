@@ -46,13 +46,14 @@ const FLOW_LABELS = {
   request: ["jobs.flow.describe", "jobs.flow.details", "jobs.flow.review"],
 } as const;
 
-/** "Step 2 of 3" with named steps (worker signup or customer request). Screen 1 of signup is account creation. */
+/** "Step 2 of 3" with named steps (worker signup or customer request): one compact bar, then the screen title.
+ * Screen 1 of signup is account creation. */
 export function StepHeader({ step, title, flow }: { step: 1 | 2 | 3; title: string; flow?: keyof typeof FLOW_LABELS }) {
   const { t } = useI18n();
   return (
     <div className="space-y-3">
-      <p className="text-sm font-bold text-muted">{t("onboarding.step", { current: step, total: 3 })}</p>
-      <ol className="grid grid-cols-3 gap-2" aria-hidden={flow ? undefined : true}>
+      <p className="sr-only">{t("onboarding.step", { current: step, total: 3 })}</p>
+      <ol className="grid max-w-xl grid-cols-3 gap-2" aria-hidden={flow ? undefined : true}>
         {[1, 2, 3].map((n) => (
           <li key={n} aria-current={n === step ? "step" : undefined}
             className={`border-t-4 pt-1.5 text-xs leading-tight sm:text-sm ${

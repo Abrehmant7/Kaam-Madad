@@ -160,7 +160,7 @@ function Workers({ jobId, recs, catalog, history, urdu, reload }: {
           <p className="text-sm text-muted">{t("rec.notABooking")}</p>
           {active.booking && (
             <ButtonLink to={`/bookings/${active.booking.id}`} fullWidth icon={<CalendarCheck className="size-5" aria-hidden />}>
-              {t("booking.open")} · {t(`booking.status.${active.booking.status}`)}
+              {t("stage.openWork")} · {t(`booking.status.${active.booking.status}`)}
             </ButtonLink>
           )}
           <ButtonLink to={`/conversations/${active.id}`} fullWidth variant={active.booking ? "secondary" : "primary"} icon={<MessagesSquare className="size-5" aria-hidden />}>
@@ -193,7 +193,7 @@ function Workers({ jobId, recs, catalog, history, urdu, reload }: {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {verification && (
-                      <StatusBadge tone={card.verification.simulated ? "warning" : "success"} icon={<ShieldCheck className="size-4" aria-hidden />}>
+                      <StatusBadge tone={card.verification.simulated ? "neutral" : "success"} icon={<ShieldCheck className="size-4" aria-hidden />}>
                         {t(verification)}
                       </StatusBadge>
                     )}

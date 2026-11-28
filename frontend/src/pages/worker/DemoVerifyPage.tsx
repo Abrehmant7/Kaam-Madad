@@ -169,9 +169,11 @@ export function DemoVerifyPage() {
         <p className="font-bold">{t("demoVerify.notNadra")}</p>
       </Alert>
       {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}
-      <UploadSlot slot="cnic" title={t("demoVerify.cnic")} icon={<IdCard className="size-5" aria-hidden />} picked={picked.cnic} onPick={pick} disabled={busy} />
-      <UploadSlot slot="selfie" title={t("demoVerify.selfie")} icon={<UserRound className="size-5" aria-hidden />} picked={picked.selfie} onPick={pick} disabled={busy} />
-      <Button fullWidth disabled={!picked.cnic || !picked.selfie || busy} loading={busy} loadingLabel={t("demoVerify.submitting")}
+      <div className="grid items-start gap-4 md:grid-cols-2">
+        <UploadSlot slot="cnic" title={t("demoVerify.cnic")} icon={<IdCard className="size-5" aria-hidden />} picked={picked.cnic} onPick={pick} disabled={busy} />
+        <UploadSlot slot="selfie" title={t("demoVerify.selfie")} icon={<UserRound className="size-5" aria-hidden />} picked={picked.selfie} onPick={pick} disabled={busy} />
+      </div>
+      <Button className="w-full sm:w-auto sm:min-w-64" disabled={!picked.cnic || !picked.selfie || busy} loading={busy} loadingLabel={t("demoVerify.submitting")}
         icon={<ShieldCheck className="size-5" aria-hidden />} onClick={() => void submit()}>
         {t("demoVerify.submit")}
       </Button>

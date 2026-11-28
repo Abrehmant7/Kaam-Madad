@@ -64,9 +64,17 @@ function Review({ job, catalog, onReload }: { job: jobsApi.JobRequest; catalog: 
   }
 
   return (
-    <div className="card space-y-5 p-4 sm:p-6">
+    <div className="space-y-5">
       <StepHeader step={3} flow="request" title={t("jobs.review.title")} />
+      <div className="grid items-start gap-5 xl:grid-cols-2">
+      <div className="min-w-0 space-y-4">
       <JobSummary job={job} catalog={catalog} />
+      <section aria-label={t("voice.readAloud")} className="space-y-2">
+        <p className="text-sm text-muted">{t("jobs.review.readAloudNote")}</p>
+        <ReadAloud text={speechText(job, catalog, language, t)} language={language} />
+      </section>
+      </div>
+      <div className="min-w-0 space-y-4">
 
       {(() => {
         const preview = workerPreview(job);
@@ -83,10 +91,8 @@ function Review({ job, catalog, onReload }: { job: jobsApi.JobRequest; catalog: 
         );
       })()}
 
-      <section aria-label={t("voice.readAloud")} className="space-y-2">
-        <p className="text-sm text-muted">{t("jobs.review.readAloudNote")}</p>
-        <ReadAloud text={speechText(job, catalog, language, t)} language={language} />
-      </section>
+      </div>
+      </div>
 
       {issues.length > 0 && (
         <Alert tone="warning" title={t("jobs.review.notReady")}>
@@ -102,11 +108,11 @@ function Review({ job, catalog, onReload }: { job: jobsApi.JobRequest; catalog: 
       {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}
 
       <Alert tone="info">{t("jobs.review.meaning")}</Alert>
-      <div className="grid gap-2">
-        <Button fullWidth disabled={!job.ready_to_confirm || busy} loading={busy} loadingLabel={t("onboarding.saving")} icon={<CircleCheck className="size-5" aria-hidden />} onClick={() => void confirm()}>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button className="sm:min-w-56" disabled={!job.ready_to_confirm || busy} loading={busy} loadingLabel={t("onboarding.saving")} icon={<CircleCheck className="size-5" aria-hidden />} onClick={() => void confirm()}>
           {t("jobs.review.confirm")}
         </Button>
-        <ButtonLink to={`/customer/requests/${job.id}/details`} variant="secondary" fullWidth icon={<Pencil className="size-5" aria-hidden />}>
+        <ButtonLink to={`/customer/requests/${job.id}/details`} variant="secondary" icon={<Pencil className="size-5" aria-hidden />}>
           {t("jobs.review.edit")}
         </ButtonLink>
       </div>

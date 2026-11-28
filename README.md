@@ -266,8 +266,18 @@ IP to `DJANGO_ALLOWED_HOSTS` and `http://<ip>:5173` to `DJANGO_CSRF_TRUSTED_ORIG
 
 ## 5. Using the app (M2, updated in M4)
 
-Local development runs as a **demo deployment** (`APP_DEPLOYMENT_MODE=demo`): every screen shows a demo banner
-and new accounts are marked as demo accounts. Use fictional phone numbers.
+Local development runs as a **demo deployment** (`APP_DEPLOYMENT_MODE=demo`): new accounts are marked as demo
+accounts and simulated features stay simulated. The word "Demo" appears only on the identity-verification screens,
+where the check really is simulated; phone codes are shown on screen ("Your code is shown below") and sample AI results
+keep their "not real AI" label. Use fictional phone numbers.
+
+**A job's three stages** (both roles, same structure): **Request & chat** `/conversations/:id` → **Quote**
+`/conversations/:id/quote` (the worker writes or revises at `?edit=1`) → **Work progress** `/bookings/:id`. A compact
+step header on each screen shows where the job stands and links to the other stages. Old conversation and booking links
+keep working.
+
+**Developer diagnostics** are outside the normal navigation: open **http://localhost:5173/diagnostics** for server and
+database readiness and the provider configuration the server reports, with a link to `/voice-test`.
 
 **Create a worker and a customer**
 1. Open http://localhost:5173 and tap **مجھے کام چاہیے / I need work** or **مجھے کاریگر چاہیے / I need a worker**.
@@ -312,7 +322,8 @@ sample areas from the API. Staff manage the catalog at `/admin/` (Service catalo
 
 ## 6. Voice and AI (M3)
 
-Open **http://localhost:5173/voice-test** while signed in (link "Voice test (preview)" on both home pages).
+Open **http://localhost:5173/voice-test** while signed in (a developer tool: linked from `/diagnostics`, not from the
+home pages).
 Flow: choose *Worker introduction* or *Job description* and the spoken language → **Record** (or **Upload a
 voice file**) → replay → **Write it down** → review the original transcript and correct the extracted fields →
 **Confirm** → **Read aloud**. **Type instead** skips recording. Nothing is published from this page.

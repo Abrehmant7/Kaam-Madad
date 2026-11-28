@@ -9,5 +9,7 @@ export default defineConfig({
     css: false,
     restoreMocks: true,
     unstubGlobals: true,
+    // Full runs start one jsdom worker per core; screen-level flows near the 5 s default timed out under that load.
+    testTimeout: 20000,
   },
 });

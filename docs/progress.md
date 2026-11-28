@@ -22,7 +22,110 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M10 Reporting and moderation | ✅ Complete (27 Nov 2026) — Urdu report through staff resolution; separate customer, worker and staff sessions |
 | Pitch improvements (ElevenLabs + Groq, voice signup, demo verification, Urdu descriptions) | ✅ Implemented (27 Nov 2026). Groq live-checked 28 Nov; Scribe Urdu needs the `scribe_v2` fallback |
 | Theme and UX pass (Kaam Madad theme, navigation, next steps, quote summary) | ✅ Implemented (28 Nov 2026); live two-role rehearsal in the app |
+| UX redesign (full-width screens, job stages, quote screen, work progress, no demo branding) | ✅ Implemented (28 Nov 2026); tests and build pass; browser check below |
 | M11 Integration and delivery | ⬜ Next |
+
+---
+
+## UX redesign — implemented (28 Nov 2026)
+
+Frontend only. The backend APIs, permissions and workflow rules are unchanged and remain the source of truth.
+
+### Delivered
+
+- **Full-width workspace:** the route-level narrow/medium/wide caps are gone. Every page uses the width beside the
+  sidebar, with normal gutters. Prose and input groups keep comfortable line lengths. Desktop uses natural columns:
+  - login beside the two ways to sign up;
+  - signup fields in two columns;
+  - request details: what and where | when, private address, budget and photos;
+  - review: summary | what the worker receives;
+  - invitation, saved request, chat, quote and booking: content | next action.
+- Choice tiles are smaller and use 3–4 columns on wider screens.
+- **New request, screen 1:** a short heading and one compact step bar ("Step 1 of 3" is kept for screen readers).
+  - Compact Speak / Type and اردو / English toggles. The input language follows the interface language until the
+    customer picks one.
+  - Recording, upload, Continue, retry and the manual path are unchanged.
+  - Typed text, the recording and an already-created draft are kept in memory across mode and language switches and
+    visits to other screens, so nothing is created twice.
+- **Job stages:** `JobStages` (Request & chat → Quote → Work progress) appears on all three screens for both roles. It
+  is built from the invitation header, the quote listing (readiness, version, draft) and the booking. Each step shows
+  its status and links to its own screen; Work progress becomes a link once a booking exists.
+- **Request & chat** (`/conversations/:id`, unchanged URL):
+  - The thread and composer, a compact request summary (with Listen and "View request details"), and the next action:
+    - worker: "Prepare a quote", or "Continue your draft";
+    - customer: one short waiting status, or "View quote" with the version, total and ready / not-ready;
+    - booked: "Open work progress".
+  - Report and block stay beside the chat.
+  - The quote form, terms, check panel and acceptance are no longer on this screen at any width.
+  - The thread scrolls on its own on desktop, so the composer stays in view.
+- **Quote** (`/conversations/:id/quote`, new): reuses `QuotePanel`, `QuoteForm` and `AcceptQuote`.
+  - Total, materials, scope and appointment come first.
+  - The next-action card holds readiness and the open findings, with their sources behind "Show where this comes from".
+    It also holds retry / manual review, accept (customer), revise (worker) and "Back to chat".
+  - Full terms, clarified points and earlier versions are behind details.
+  - The worker writes at `?edit=1`, next to the customer's request. Unsent quote terms survive a visit to the chat.
+  - Server readiness, versions, idempotent acceptance and stale-quote handling are unchanged.
+- **Shared layout:** the chat and quote screens share one layout route. The header, catalog and the single quote poll
+  load once, so switching screens adds no requests.
+- **Work progress** (`/bookings/:id`):
+  - Acceptance still opens it directly.
+  - The real status comes first ("Booked", then "In progress" …) with this person's next step.
+  - Arrival, code, start, completion and review panels follow. A pending change needing a decision stays in view.
+  - Time, address, price, chat link, report/block and cancel are in the side column.
+  - Agreed terms, change history, past events and the request are behind details.
+- **Links to stages:**
+  - A booked request on the customer dashboard and a booked invitation in the worker inbox open Work progress
+    directly.
+  - Request cards show one status.
+- **Demo and developer information removed** from normal screens:
+  - the header demo badge and banner, dashboard demo-account badges, and the landing "early version" notice;
+  - the landing server-status card, and the dashboard Voice Test link.
+  - "Demo" wording stays on the identity-verification screens only.
+  - Phone codes: "No SMS is sent. Your code will be shown on this screen." / "Your code is shown below".
+  - Simulated identity elsewhere reads "Sample check only (not an ID check)".
+  - `/diagnostics` (unlinked) shows readiness and provider configuration for developers.
+- **Phones:** the bottom bar steps aside while a text field has focus, so it cannot cover the composer or form buttons
+  above the keyboard.
+
+### Automated checks
+
+- `npm run build` (typecheck + Vite build) passes.
+- `npx vitest run --maxWorkers=2`: 19 files, 124 tests pass.
+  - New tests: stage header and links; the customer's waiting status with no quote panel on the chat screen; chat →
+    View quote with no chat thread and no extra header request; Back to chat keeps the unsent message.
+  - Also new: a direct quote link fetches no messages; Prepare quote → `?edit=1` → send returns to the quote view;
+    quote terms survive a visit to the chat; accept → Work progress "Booked" with stage links.
+  - Also new: worker "In progress" next step; new-request language default and drafts; dashboard stage links; no
+    demo branding on the landing page, header or dashboard; `/diagnostics`.
+- `vitest.config.ts` now sets `testTimeout: 20000`. At HEAD, 3 tests (completion, theme, voice test page) already
+  failed with the 5 s default timeout on this 18-core / 7.5 GB machine, and passed when run alone.
+
+### Browser walkthrough (28 Nov 2026)
+
+- **Setup:** real Django + PostgreSQL (5434) with fixture AI providers (process environment only), Vite dev server,
+  and headless Microsoft Edge driven by Playwright.
+- **Data:** fictional accounts only. One customer per run (`0300777xxxx`) and one demo-approved worker per run
+  (`0300888xxxx`, created the way `seed_demo_workers` does).
+- **Languages:** customer in English (LTR), worker in Urdu (RTL); the Urdu customer screens were checked at the end.
+- **Result:** 55 checks passed.
+  - Landing page: no demo text and no server status.
+  - New request: the input language defaults to the interface language (English, then Urdu); typed text survives a
+    mode switch.
+  - Worker chat: "Prepare a quote", with no quote form, terms or accept. A message was sent from the Urdu composer.
+  - Prepare quote → `?edit=1`, with the request beside the form and no chat thread. Version 1 (customer brings
+    materials) was blocked by the materials check. The customer saw "View quote" in the chat; the quote screen had the
+    total first and no thread.
+  - Back from quote → chat.
+  - Revision to version 2 (materials included) → the customer accepted → Work progress showed "Booked", with the stage
+    header on Work progress.
+  - Back → the quote showed "Quote accepted" with "Open work progress". The worker inbox linked straight to the
+    booking.
+  - The worker's "I have arrived", then the customer's code, gave "In progress" for both roles.
+  - Direct links and refresh worked for the quote, the chat and the old conversation URL.
+- **Widths (360, 390 and 1440 px):** no horizontal scroll. With a text field focused at 390 and 360 px, the bottom bar
+  was hidden and the primary button was inside the viewport.
+- **Not verified:** a real on-screen keyboard (headless browser; the check relies on the bottom bar hiding on focus
+  and the button fitting), and voice recording in the browser.
 
 ---
 

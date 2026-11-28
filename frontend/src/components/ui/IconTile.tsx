@@ -55,7 +55,7 @@ export function IconTileGroup<V extends string>({
         // The fieldset/legend already names a multi-select group; only single mode needs a radiogroup.
         role={mode === "single" ? "radiogroup" : undefined}
         aria-label={mode === "single" ? label : undefined}
-        className={`grid gap-3 ${columns === 2 ? "grid-cols-2" : "grid-cols-1"}`}
+        className={`grid gap-2 sm:gap-3 ${columns === 2 ? "grid-cols-2 md:grid-cols-3 2xl:grid-cols-4" : "grid-cols-1"}`}
       >
         {options.map((option) => {
           const selected = value.includes(option.value);
@@ -68,7 +68,7 @@ export function IconTileGroup<V extends string>({
               aria-pressed={mode === "multiple" ? selected : undefined}
               onClick={() => toggle(option.value)}
               className={[
-                "relative flex min-h-28 flex-col items-center justify-center gap-2 rounded-2xl border-2 p-3 text-center transition-colors",
+                "relative flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-2xl border-2 p-3 text-center transition-colors sm:min-h-20",
                 selected ? "border-primary bg-primary-soft shadow-sm" : "border-line bg-white hover:border-primary/50 hover:bg-[#f7f9ff]",
               ].join(" ")}
             >

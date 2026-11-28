@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -115,6 +115,29 @@ describe("job request flow", () => {
     expect(await screen.findByRole("heading", { level: 1, name: en["jobs.details.title"] })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/customer/requests/job-1/details");
   }, 15000);
+
+  it("first screen: the input language follows the interface, and typed text survives a mode switch, a language change and a visit elsewhere", async () => {
+    mockApi({ ...bootHandlers(customer()), ...catalog, "GET /api/v1/jobs/": jsonResponse(page([])), "GET /api/v1/bookings/": jsonResponse(page([])) });
+    const { router } = renderApp("/customer/requests/new", "en");
+    const group = await screen.findByRole("group", { name: en["jobs.describe.languageLabel"] });
+    expect(within(group).getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "true"); // the interface language
+    expect(screen.getByRole("button", { name: en["jobs.describe.speak"] })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(en["onboarding.step"].replace("{current}", "1").replace("{total}", "3"))).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: en["jobs.describe.type"] }));
+    await userEvent.type(screen.getByLabelText(en["jobs.describe.textLabel"]), "Two fans in G-9");
+    await userEvent.click(within(group).getByRole("button", { name: "اردو" }));
+    expect(within(group).getByRole("button", { name: "اردو" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: en["jobs.describe.speak"] }));
+    await userEvent.click(screen.getByRole("button", { name: en["jobs.describe.type"] }));
+    expect(screen.getByLabelText(en["jobs.describe.textLabel"])).toHaveValue("Two fans in G-9");
+
+    await act(() => router.navigate("/customer"));
+    await screen.findByRole("heading", { level: 1, name: en["home.customer.title"] });
+    await act(() => router.navigate(-1));
+    expect(await screen.findByLabelText(en["jobs.describe.textLabel"])).toHaveValue("Two fans in G-9");
+    expect(within(screen.getByRole("group", { name: en["jobs.describe.languageLabel"] })).getByRole("button", { name: "اردو" })).toHaveAttribute("aria-pressed", "true");
+  });
 
   it("shows server time-window errors next to the time fields", async () => {
     mockApi({
