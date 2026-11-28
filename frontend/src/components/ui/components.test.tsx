@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "../../i18n/I18nProvider";
 import { en } from "../../i18n/resources/en";
+import { ur } from "../../i18n/resources/ur";
 import { KNOWN_ICON_IDS } from "../catalogIcons";
 import { AudioButton } from "./AudioButton";
 import { IconTileGroup } from "./IconTile";
@@ -92,6 +93,48 @@ describe("PasswordField", () => {
     expect(input).toHaveAttribute("dir", "ltr");
     await userEvent.click(screen.getByRole("button", { name: en["password.show"] }));
     expect(input).toHaveAttribute("type", "text");
+  });
+
+  it.each(["en", "ur"] as const)("keeps descriptions and keyboard toggling accessible in %s", async (language) => {
+    const user = userEvent.setup();
+    const messages = language === "ur" ? ur : en;
+    const password = "Long-Sample-Password-2026-".repeat(4);
+    render(
+      <I18nProvider initialLanguage={language}>
+        <PasswordField
+          label={messages["signup.passwordLabel"]}
+          value={password}
+          onChange={() => {}}
+          hint={messages["signup.passwordHint"]}
+          hintPosition="after"
+          errors={[messages["fieldErrors.password_too_common"]]}
+          autoComplete="new-password"
+        />
+      </I18nProvider>,
+    );
+    const input = screen.getByLabelText(messages["signup.passwordLabel"]);
+    expect(input).toHaveAccessibleDescription(
+      `${messages["signup.passwordHint"]} ${messages["fieldErrors.password_too_common"]}`,
+    );
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAttribute("autocomplete", "new-password");
+    expect(input).toHaveValue(password);
+
+    await user.tab();
+    expect(input).toHaveFocus();
+    await user.tab();
+    const toggle = screen.getByRole("button", { name: messages["password.show"] });
+    expect(toggle).toHaveFocus();
+    await user.keyboard(" ");
+    expect(input).toHaveAttribute("type", "text");
+    expect(input).toHaveAttribute("dir", "ltr");
+    expect(input).toHaveValue(password);
+    expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAccessibleName(messages["password.hide"]);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await user.keyboard(" ");
+    expect(input).toHaveAttribute("type", "password");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 });
 

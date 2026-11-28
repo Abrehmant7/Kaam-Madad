@@ -23,13 +23,14 @@ interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "on
   value: string;
   onChange: (value: string) => void;
   hint?: string;
+  hintPosition?: "before" | "after";
   errors?: string[];
   /** "ltr" for phone numbers and codes so digits never reorder inside Urdu UI. */
   dir?: "ltr" | "rtl" | "auto";
   trailing?: ReactNode;
 }
 
-export function TextField({ label, value, onChange, hint, errors = [], dir, trailing, id, className = "", ...props }: TextFieldProps) {
+export function TextField({ label, value, onChange, hint, hintPosition = "before", errors = [], dir, trailing, id, className = "", ...props }: TextFieldProps) {
   const generated = useId();
   const inputId = id ?? generated;
   const hintId = `${inputId}-hint`;
@@ -38,16 +39,16 @@ export function TextField({ label, value, onChange, hint, errors = [], dir, trai
   const invalid = errors.length > 0;
 
   return (
-    <div className={className}>
+    <div className={`min-w-0 ${className}`}>
       <label htmlFor={inputId} className="mb-1 block font-bold">
         {label}
       </label>
-      {hint && (
+      {hint && hintPosition === "before" && (
         <p id={hintId} className="mb-1 text-sm text-muted">
           {hint}
         </p>
       )}
-      <div className="relative">
+      <div className="relative" dir={dir}>
         <input
           id={inputId}
           value={value}
@@ -65,6 +66,11 @@ export function TextField({ label, value, onChange, hint, errors = [], dir, trai
         />
         {trailing && <div className="absolute inset-y-0 end-1 flex items-center">{trailing}</div>}
       </div>
+      {hint && hintPosition === "after" && (
+        <p id={hintId} className="mt-1 text-sm text-muted">
+          {hint}
+        </p>
+      )}
       <FieldErrors id={errorId} messages={errors} />
     </div>
   );

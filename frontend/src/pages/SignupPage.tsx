@@ -110,10 +110,10 @@ export function SignupPage() {
         required
       />
       </div>
-      <div className="space-y-3">
       <PasswordField
         label={t("signup.passwordLabel")}
         hint={t("signup.passwordHint")}
+        hintPosition="after"
         value={password}
         onChange={setPassword}
         errors={errors.password}
@@ -121,8 +121,6 @@ export function SignupPage() {
         maxLength={128}
         required
       />
-      <InstructionAudio id="signup_password" />
-      </div>
       <PasswordField
         label={t("signup.passwordConfirmLabel")}
         value={passwordConfirm}
@@ -132,6 +130,9 @@ export function SignupPage() {
         maxLength={128}
         required
       />
+      <div className="md:col-span-2">
+        <InstructionAudio id="signup_password" />
+      </div>
       </div>
 
       <div className="space-y-1 text-sm text-muted">
