@@ -94,19 +94,16 @@ export function HomeIcon(props: IconProps) {
   );
 }
 
-/** Brand mark: a rising sun over a horizon. */
+/** Brand mark: a house with a wrench, on indigo, with a gold base line. */
 export function LogoMark({ className = "size-9", ...props }: IconProps) {
   return (
-    <svg viewBox="0 0 40 40" aria-hidden="true" focusable="false" className={className} {...props}>
-      <rect width="40" height="40" rx="10" fill="#0b4743" />
-      <circle cx="20" cy="24" r="8" fill="#f2a93b" />
-      <g stroke="#f2a93b" strokeWidth="2.5" strokeLinecap="round">
-        <path d="M20 9v4" />
-        <path d="M9.5 13.5l2.8 2.8" />
-        <path d="M30.5 13.5l-2.8 2.8" />
+    <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" className={className} {...props}>
+      <rect width="48" height="48" rx="12" fill="#234cb7" />
+      <g fill="none" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 32V21l12-9 12 9v11H24" />
+        <path d="M20 34l8-8m-3.7-3.7 7.4 7.4" />
       </g>
-      <rect x="6" y="26" width="28" height="8" fill="#0b4743" />
-      <path d="M7 27h26" stroke="#f7f6f2" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M11 36h9" stroke="#ffc75f" strokeWidth="3.2" strokeLinecap="round" />
     </svg>
   );
 }

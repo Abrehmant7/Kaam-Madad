@@ -9,6 +9,7 @@ import { useAuth } from "../auth/context";
 import { Ltr } from "../components/Ltr";
 import { Alert } from "../components/ui/Alert";
 import { ButtonLink } from "../components/ui/Button";
+import { PageHeader } from "../components/ui/PageHeader";
 import { PageLoader } from "../components/ui/PageLoader";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { ArrivalPanel } from "../features/bookings/ArrivalPanel";
@@ -113,12 +114,10 @@ export function BookingPage() {
 
   return (
     <div className="space-y-5">
-      <div className="space-y-2">
-        <h1 className="flex items-center gap-2 text-3xl font-bold text-primary">
-          <CalendarCheck className="size-7" aria-hidden />
-          {t("booking.title")}
-        </h1>
+      <PageHeader icon={<CalendarCheck className="size-6" aria-hidden />} title={t("booking.title")}>
         <StatusBadge tone={STATUS_TONE[booking.status]}>{t(`booking.status.${booking.status}`)}</StatusBadge>
+      </PageHeader>
+      <div>
         {counterpart.role === "worker" ? (
           <p className="flex flex-wrap items-center gap-2 font-bold">
             {label ? label.trade(counterpart.trade) : ""} · {t("rec.ref")} {workerRef(counterpart.worker_id)}
@@ -149,7 +148,8 @@ export function BookingPage() {
         <Alert tone="success" title={t("booking.inProgressTitle")}>{t("booking.inProgressBody")}</Alert>
       )}
 
-      <section className="space-y-1 rounded-2xl border border-line bg-white p-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+      <section className="space-y-1 card p-4">
         <h2 className="text-sm text-muted">{t("booking.when")}</h2>
         <p className="font-bold">{formatDate(booking.start_at, language)}</p>
         <Ltr className="font-bold">{when}</Ltr>
@@ -157,13 +157,14 @@ export function BookingPage() {
       </section>
 
       {booking.address && (
-        <section className="space-y-1 rounded-2xl border border-line bg-white p-4">
+        <section className="space-y-1 card p-4">
           <h2 className="flex items-center gap-2 font-bold"><MapPin className="size-5" aria-hidden />{t(role === "worker" ? "booking.addressWorker" : "booking.addressCustomer")}</h2>
           <p dir={textDir(booking.address.address)} className="whitespace-pre-line">{booking.address.address}</p>
           {booking.address.access_notes && <p dir={textDir(booking.address.access_notes)} className="text-sm">{booking.address.access_notes}</p>}
           <p className="text-xs text-muted">{t(role === "worker" ? "booking.addressWorkerNote" : "booking.addressCustomerNote")}</p>
         </section>
       )}
+      </div>
 
       <ArrivalPanel booking={booking} act={act} busy={busy} />
       <CompletionPanel booking={booking} act={act} busy={busy} />
@@ -171,7 +172,7 @@ export function BookingPage() {
 
       <section aria-labelledby="terms-heading" className="space-y-3">
         <h2 id="terms-heading" className="text-lg font-bold">{t("booking.terms")}</h2>
-        <dl className="space-y-3 rounded-2xl border border-line bg-white p-4">
+        <dl className="space-y-3 card p-4">
           <StatusBadge tone="info">
             {booking.terms_changed ? t("booking.termsAfterChange", { number: booking.terms.source?.kind === "change" ? booking.terms.source.number : "" })
               : t("booking.termsAccepted", { version: booking.quote_version })}

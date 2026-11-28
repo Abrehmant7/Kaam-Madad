@@ -6,6 +6,9 @@ import { en } from "../i18n/resources/en";
 import { AREAS, bootHandlers, errorEnvelope, jsonResponse, makeUser, mockApi, SERVICES, TRADES } from "../test/http";
 import { renderApp } from "../test/renderApp";
 
+/** The full quote panel (the mobile summary above the chat repeats the key points on purpose). */
+const quotePanel = () => within(screen.getByRole("region", { name: en["quote.title"] }));
+
 const BASE = "/api/v1/conversations/inv-1";
 const page = <T,>(results: T[]) => ({ count: results.length, next: null, previous: null, results });
 const catalog = {
@@ -122,6 +125,24 @@ describe("conversation messages", () => {
     expect(send.body).toMatchObject({ kind: "voice", audio_clip_id: "clip-9", transcription_id: "tr-9", text: "میں کل شام آ سکتا ہوں، پانچ بجے" });
   }, 15000);
 
+  it("summarises the total, who supplies materials and what blocks acceptance above the chat (small screens)", async () => {
+    mockApi({
+      ...bootHandlers(customer()), ...catalog,
+      [`GET ${BASE}/`]: jsonResponse(header("customer")),
+      [`GET ${BASE}/quotes/`]: jsonResponse(listing(quote(), false, ["unresolved_findings"])),
+      [`GET ${BASE}/messages/`]: jsonResponse({ results: [], has_more_before: false }),
+    });
+    renderApp("/conversations/inv-1", "en");
+    const summary = within(await screen.findByRole("region", { name: en["quote.versionLabel"].replace("{version}", "1") }));
+    expect(summary.getByText("PKR 1,200")).toHaveAttribute("dir", "ltr");
+    expect(summary.getByText(en["quote.materials.customer"])).toBeInTheDocument();
+    expect(summary.getByText(en["quote.summary.blocked"])).toBeInTheDocument();
+    expect(summary.getByText(en["quote.blocking.unresolved_findings"])).toBeInTheDocument();
+    expect(summary.getByRole("link", { name: en["quote.summary.see"] })).toHaveAttribute("href", "#quote");
+    // The full quote panel (with accept, check and clarifications) is the link's target.
+    expect(screen.getByRole("region", { name: en["quote.title"] })).toHaveAttribute("id", "quote");
+  });
+
   it("a closed invitation keeps the history readable but offers no composer", async () => {
     mockApi({
       ...bootHandlers(customer()), ...catalog,
@@ -134,7 +155,7 @@ describe("conversation messages", () => {
     expect(await screen.findByText("Salaam, I can come tomorrow.")).toBeInTheDocument();
     expect(screen.getAllByText(en["conv.captionUnavailable"]).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText(en["conv.messageLabel"])).not.toBeInTheDocument();
-    expect(await screen.findByText(en["quote.blocking.invitation_not_active"])).toBeInTheDocument();
+    expect(await quotePanel().findByText(en["quote.blocking.invitation_not_active"])).toBeInTheDocument();
     expect(screen.queryByText(en["quote.ready.title"])).not.toBeInTheDocument();
   });
 });
@@ -155,7 +176,7 @@ describe("quotes and agreement gaps", () => {
     });
     renderApp("/conversations/inv-1", "en");
     expect(await screen.findByText(en["quote.notReady.title"])).toBeInTheDocument();
-    expect(screen.getByText(en["quote.blocking.unresolved_findings"])).toBeInTheDocument();
+    expect(quotePanel().getByText(en["quote.blocking.unresolved_findings"])).toBeInTheDocument();
     expect(screen.getByText(en["quote.finding.code.materials_responsibility"])).toBeInTheDocument();
     expect(screen.getByText(/Who supplies and pays for the materials\?/)).toBeInTheDocument();
     expect(screen.getByText("“دو چھت کے پنکھے سامان سمیت لگانے ہیں۔”")).toBeInTheDocument(); // the source statement
@@ -187,7 +208,7 @@ describe("quotes and agreement gaps", () => {
     });
     renderApp("/conversations/inv-1", "en");
     expect(await screen.findByText(en["quote.check.unavailableTitle"])).toBeInTheDocument();
-    expect(screen.getByText(en["quote.blocking.automated_check_unavailable"])).toBeInTheDocument();
+    expect(quotePanel().getByText(en["quote.blocking.automated_check_unavailable"])).toBeInTheDocument();
     expect(screen.queryByText(en["quote.check.passed"])).not.toBeInTheDocument();
     expect(screen.queryByText(en["quote.ready.title"])).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: en["quote.check.manualReview"] }));

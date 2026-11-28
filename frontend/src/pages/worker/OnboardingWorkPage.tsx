@@ -127,9 +127,14 @@ export function OnboardingWorkPage() {
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-6">
-      <StepHeader step={2} title={t("onboarding.work.title")} />
+      <StepHeader step={2} flow="worker" title={t("onboarding.work.title")} />
       <InstructionAudio id="onboarding_work" />
-      <VoiceAnswer kind="onboarding_work" onSuggest={applyVoice} />
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      {/* Beside the manual choices on desktop; above them on phones. */}
+      <div className="lg:sticky lg:top-24 lg:order-last">
+        <VoiceAnswer kind="onboarding_work" onSuggest={applyVoice} />
+      </div>
+      <div className="card min-w-0 space-y-6 p-4 sm:p-5">
       {formError !== null && <Alert tone="danger">{describeError(formError, t)}</Alert>}
 
       <IconTileGroup label={t("onboarding.work.tradeLabel")} mode="single" options={tradeOptions} value={trade} onChange={setTrade} errors={errors.trade} />
@@ -197,6 +202,8 @@ export function OnboardingWorkPage() {
       >
         {t("onboarding.work.save")}
       </Button>
+      </div>
+      </div>
     </form>
   );
 }

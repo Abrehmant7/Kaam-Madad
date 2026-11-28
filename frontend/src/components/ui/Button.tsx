@@ -2,15 +2,19 @@ import { LoaderCircle } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Link, type LinkProps } from "react-router";
 
-type Variant = "primary" | "secondary" | "danger" | "ghost";
+type Variant = "primary" | "secondary" | "gold" | "soft" | "danger" | "ghost";
 
 const BASE =
-  "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 py-2 text-base font-bold transition-colors " +
-  "disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 py-2 text-center text-base font-bold leading-snug " +
+  "transition-colors disabled:cursor-not-allowed disabled:opacity-60";
 
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-primary text-white hover:bg-primary-strong",
-  secondary: "border-2 border-primary bg-white text-primary hover:bg-surface",
+  primary: "bg-primary text-white shadow-sm hover:bg-primary-strong",
+  secondary: "border border-field bg-white text-primary hover:border-primary hover:bg-primary-soft",
+  /** Gold call to action: on navy surfaces (hero) and for the main next step. */
+  gold: "bg-accent text-ink shadow-sm hover:bg-accent-strong",
+  /** Quiet blue: listen / read aloud and other secondary helpers. */
+  soft: "bg-primary-soft text-primary hover:bg-[#dce6ff]",
   danger: "bg-danger text-white hover:bg-danger-strong",
   ghost: "text-primary underline-offset-4 hover:underline",
 };

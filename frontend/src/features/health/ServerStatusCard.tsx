@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { CheckCircleIcon, NoConnectionIcon, RefreshIcon, SpinnerIcon, WarningIcon } from "../../components/icons";
 import { Ltr } from "../../components/Ltr";
+import { buttonClasses } from "../../components/ui/Button";
 import { useI18n } from "../../i18n/context";
 import type { TranslationKey } from "../../i18n/types";
 import { type ServerStatus, useServerStatus } from "./useServerStatus";
@@ -45,7 +46,7 @@ export function ServerStatusCard() {
   const canRetry = status.kind !== "checking" && status.kind !== "ready";
 
   return (
-    <section aria-labelledby="server-status-heading" className="rounded-2xl border border-line bg-white p-4 shadow-sm">
+    <section aria-labelledby="server-status-heading" className="card p-4">
       <h2 id="server-status-heading" className="mb-3 text-lg font-bold">
         {t("status.heading")}
       </h2>
@@ -67,7 +68,7 @@ export function ServerStatusCard() {
       )}
 
       {canRetry && (
-        <button type="button" onClick={retry} className="btn-primary mt-4 w-full">
+        <button type="button" onClick={retry} className={buttonClasses("primary", true, "mt-4")}>
           <RefreshIcon className="size-5" />
           <span>{t("status.retry")}</span>
         </button>

@@ -73,7 +73,7 @@ export function ReportNewPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="flex items-center gap-2 text-3xl font-bold text-primary">
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-ink sm:text-3xl">
         <Flag className="size-7" aria-hidden />
         {t("report.new.title")}
       </h1>

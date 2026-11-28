@@ -80,7 +80,7 @@ function ProposeForm({ booking, act, busy, onClose }: { booking: bookingsApi.Boo
   }
 
   return (
-    <section aria-labelledby="propose-heading" className="space-y-4 rounded-2xl border-2 border-primary/40 bg-white p-4">
+    <section aria-labelledby="propose-heading" className="space-y-4 card-action p-4">
       <h3 id="propose-heading" className="text-lg font-bold">{t("change.formTitle")}</h3>
       <p className="text-sm text-muted">{t("change.formIntro")}</p>
       <TermsFields state={state} errors={errors} allowTime={booking.actions.change_time} />

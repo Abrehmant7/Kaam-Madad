@@ -1,8 +1,10 @@
-import { CircleCheck, Pencil } from "lucide-react";
+import { CircleCheck, Eye, Pencil } from "lucide-react";
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 
+import type { SharedSummary } from "../../api/invitations";
 import * as jobsApi from "../../api/jobs";
+import { SharedJob } from "../../features/invitations/SharedJob";
 import { Alert } from "../../components/ui/Alert";
 import { Button, ButtonLink } from "../../components/ui/Button";
 import { PageLoader } from "../../components/ui/PageLoader";
@@ -22,6 +24,18 @@ export function JobReviewPage() {
   const [job, catalog] = data.state.data;
   if (job.status !== "draft") return <Navigate to={`/customer/requests/${job.id}`} replace />;
   return <Review job={job} catalog={catalog} onReload={data.retry} />;
+}
+
+/** Exactly the shareable fields the server sends with an invitation (apps.jobs.summary.matching_summary). */
+function workerPreview(job: jobsApi.JobRequest): SharedSummary | null {
+  const d = job.details;
+  if (!d.trade || !d.city || !d.area || !d.window_start || !d.window_end) return null;
+  return {
+    description: d.description, description_language: job.urdu.description_language,
+    description_ur: job.urdu.status === "approved" ? job.urdu.text : null,
+    trade: d.trade, services: d.services, services_excluded: d.services_excluded, city: d.city, area: d.area,
+    window_start: d.window_start, window_end: d.window_end, budget_preference_pkr: d.budget_pkr, has_photos: job.photos.length > 0,
+  };
 }
 
 function Review({ job, catalog, onReload }: { job: jobsApi.JobRequest; catalog: JobCatalog; onReload: () => void }) {
@@ -50,9 +64,24 @@ function Review({ job, catalog, onReload }: { job: jobsApi.JobRequest; catalog: 
   }
 
   return (
-    <div className="space-y-5">
-      <StepHeader step={3} title={t("jobs.review.title")} />
+    <div className="card space-y-5 p-4 sm:p-6">
+      <StepHeader step={3} flow="request" title={t("jobs.review.title")} />
       <JobSummary job={job} catalog={catalog} />
+
+      {(() => {
+        const preview = workerPreview(job);
+        if (!preview) return null;
+        return (
+          <section aria-labelledby="worker-sees-heading" className="space-y-2">
+            <h2 id="worker-sees-heading" className="flex items-center gap-2 text-lg font-bold">
+              <Eye className="size-5 text-primary" aria-hidden />
+              {t("jobs.review.workerSees")}
+            </h2>
+            <p className="text-sm text-muted">{t("jobs.review.workerSeesNote")}</p>
+            <SharedJob job={preview} catalog={catalog} preview />
+          </section>
+        );
+      })()}
 
       <section aria-label={t("voice.readAloud")} className="space-y-2">
         <p className="text-sm text-muted">{t("jobs.review.readAloudNote")}</p>

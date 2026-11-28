@@ -158,7 +158,11 @@ class GroqAgreementWorkflowTests(PitchAgreementWorkflowTests):
         ]
         for index, (reply, failure) in enumerate(cases):
             with self.subTest(failure=failure):
-                self.run_with(reply)
+                if "output_truncated" in failure:  # truncation is retried once at medium effort: truncated again
+                    truncated = lambda: httpx.Response(200, json={"choices": [{"finish_reason": "length", "message": {"content": "{"}}]})  # noqa: E731
+                    self.run_with(truncated(), truncated())
+                else:
+                    self.run_with(reply)
                 quote = self.labour_only_quote() if index == 0 else self._revise()
                 self.assertEqual((quote["check"]["status"], quote["check"]["failure"]), ("unavailable", failure.split(":")[0]))
                 stored = Quote.objects.get(pk=quote["id"])

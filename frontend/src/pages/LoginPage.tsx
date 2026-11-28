@@ -48,8 +48,8 @@ export function LoginPage() {
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-5">
-      <h1 className="text-3xl font-bold text-primary">{t("login.title")}</h1>
+    <form onSubmit={(event) => void handleSubmit(event)} noValidate className="card mx-auto max-w-lg space-y-5 p-5 sm:p-7">
+      <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("login.title")}</h1>
 
       {sessionExpired && !formError && <Alert tone="warning">{t("auth.sessionExpired")}</Alert>}
       {formError !== null && <Alert tone="danger">{describeError(formError, t)}</Alert>}

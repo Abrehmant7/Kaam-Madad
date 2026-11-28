@@ -86,7 +86,7 @@ class GroqClient:
 
     def generate_json(
         self, *, system_instruction: str, user_content: str, schema: dict[str, Any], schema_name: str,
-        max_completion_tokens: int | None = None,
+        max_completion_tokens: int | None = None, reasoning_effort: str | None = None,
     ) -> dict[str, Any]:
         body = {
             "model": self.model,
@@ -98,7 +98,8 @@ class GroqClient:
                 "type": "json_schema",
                 "json_schema": {"name": schema_name, "strict": True, "schema": strict_schema(schema)},
             },
-            "reasoning_effort": self.reasoning_effort,
+            "reasoning_effort": reasoning_effort or self.reasoning_effort,
+            "temperature": settings.GROQ_TEMPERATURE,
             "include_reasoning": False,
             "max_completion_tokens": max_completion_tokens or settings.GROQ_MAX_COMPLETION_TOKENS,
         }

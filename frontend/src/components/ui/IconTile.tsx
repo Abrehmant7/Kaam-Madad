@@ -68,8 +68,8 @@ export function IconTileGroup<V extends string>({
               aria-pressed={mode === "multiple" ? selected : undefined}
               onClick={() => toggle(option.value)}
               className={[
-                "relative flex min-h-28 flex-col items-center justify-center gap-2 rounded-2xl border-2 p-3 text-center",
-                selected ? "border-primary bg-primary/10 shadow-sm" : "border-line bg-white hover:border-primary/60",
+                "relative flex min-h-28 flex-col items-center justify-center gap-2 rounded-2xl border-2 p-3 text-center transition-colors",
+                selected ? "border-primary bg-primary-soft shadow-sm" : "border-line bg-white hover:border-primary/50 hover:bg-[#f7f9ff]",
               ].join(" ")}
             >
               <span className={selected ? "text-primary" : "text-muted"}>{option.icon}</span>

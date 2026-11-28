@@ -12,11 +12,23 @@ import { formatDate, formatTime } from "../jobs/time";
 
 type T = I18nContextValue["t"];
 
-/** The description a reader of ``language`` should see first: the customer-approved Urdu version for Urdu
- * readers, otherwise the customer's own words. */
-function readableDescription(job: SharedSummary, language: Language): { text: string; urdu: boolean } {
-  if (language === "ur" && job.description_ur) return { text: job.description_ur, urdu: true };
-  return { text: job.description, urdu: false };
+/** Language of the customer's own words (older invitations carry no ``description_language``: judged by script). */
+function originalLanguage(job: SharedSummary): "ur" | "en" | "mixed" | null {
+  if (job.description_language) return job.description_language;
+  const dir = textDir(job.description);
+  return dir === "rtl" ? "ur" : dir === "ltr" ? "en" : null;
+}
+
+/**
+ * The description to read to someone using ``language``, or null when none is in their language:
+ * - Urdu: the customer-approved Urdu version first; otherwise the original when it is already in Urdu.
+ * - English: the original when it is in English.
+ * An untranslated English request read in Urdu falls back to the structured details only.
+ */
+export function spokenDescription(job: SharedSummary, language: Language): string | null {
+  const original = originalLanguage(job);
+  const text = language === "ur" ? (job.description_ur || (original === "ur" ? job.description : "")) : original === "en" ? job.description : "";
+  return text.trim() ? text.trim().slice(0, 800) : null;
 }
 
 /**
@@ -28,10 +40,8 @@ export function sharedSpeech(job: SharedSummary, catalog: JobCatalog, language: 
   const services = job.services.map(label.service).join(language === "ur" ? "، " : ", ");
   const time = `${formatTime(job.window_start, language)} – ${formatTime(job.window_end, language)}`;
   const parts = [t("jobs.speech.task", { trade: label.trade(job.trade), services })];
-  const description = readableDescription(job, language);
-  // Spoken only when it is in the reader's language: the approved Urdu version, or English notes for English readers.
-  const spoken = description.urdu || (language === "en" && job.description_language === "en");
-  if (spoken && description.text.trim()) parts.push(t("jobs.speech.description", { text: description.text.trim().slice(0, 800) }));
+  const description = spokenDescription(job, language);
+  if (description) parts.push(t("jobs.speech.description", { text: description }));
   parts.push(
     t("jobs.speech.area", { area: label.area(job.area), city: label.city(job.city) }),
     t("jobs.speech.when", { date: formatDate(job.window_start, language), time: isolateLtr(time) }),
@@ -48,13 +58,19 @@ function Row({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** The shared view of a request (invitation preview for customers, invitation detail for workers). */
-export function SharedJob({ job, catalog, showDescription = true }: { job: SharedSummary; catalog: JobCatalog; showDescription?: boolean }) {
+/**
+ * The shared view of a request (invitation preview for customers, invitation detail for workers). ``listen`` is
+ * placed right after the task, area and time, so the Listen control stays with them. ``preview`` (customer) always
+ * shows the approved Urdu version, whatever the customer's own interface language.
+ */
+export function SharedJob({ job, catalog, showDescription = true, listen, preview = false }: {
+  job: SharedSummary; catalog: JobCatalog; showDescription?: boolean; listen?: ReactNode; preview?: boolean;
+}) {
   const { t, language } = useI18n();
   const label = labeller(catalog, language);
   const separator = language === "ur" ? "، " : ", ";
   return (
-    <dl className="space-y-3 rounded-2xl border border-line bg-white p-4">
+    <dl className="space-y-3 card p-4">
       <Row title={t("jobs.summary.task")}>
         {label.trade(job.trade)}: {job.services.map(label.service).join(separator)}
       </Row>
@@ -67,7 +83,8 @@ export function SharedJob({ job, catalog, showDescription = true }: { job: Share
           <span className="text-sm font-normal text-muted">{t("rec.requestedTimeNote")}</span>
         </span>
       </Row>
-      {showDescription && language === "ur" && job.description_ur && (
+      {listen && <div className="border-t border-line pt-3">{listen}</div>}
+      {showDescription && (language === "ur" || preview) && job.description_ur && (
         <Row title={t("jobs.summary.descriptionUr")}>
           <span dir="rtl" lang="ur" className="block whitespace-pre-line font-normal">{job.description_ur}</span>
         </Row>

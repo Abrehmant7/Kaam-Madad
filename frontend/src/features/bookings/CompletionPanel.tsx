@@ -22,7 +22,7 @@ export function CompletionPanel({ booking, act, busy }: { booking: bookingsApi.B
 
   if (booking.status === "in_progress" && booking.role === "worker") {
     return (
-      <section aria-labelledby="completion-heading" className="space-y-3 rounded-2xl border-2 border-primary bg-white p-4">
+      <section aria-labelledby="completion-heading" className="space-y-3 card-action p-4">
         <h2 id="completion-heading" className="text-lg font-bold">{t("completion.workerTitle")}</h2>
         <p className="text-sm">{t("completion.workerIntro")}</p>
         {a.completion_blocked_by_change && <Alert tone="warning">{t("completion.changeOpen")}</Alert>}
@@ -38,7 +38,7 @@ export function CompletionPanel({ booking, act, busy }: { booking: bookingsApi.B
     if (booking.role === "worker") return <Alert tone="info" title={t("completion.waitingTitle")}>{t("completion.waitingBody")}</Alert>;
     const ready = reason.length === 1 && note.trim().length >= 3;
     return (
-      <section aria-labelledby="confirm-heading" className="space-y-3 rounded-2xl border-2 border-primary bg-white p-4">
+      <section aria-labelledby="confirm-heading" className="space-y-3 card-action p-4">
         <h2 id="confirm-heading" className="text-lg font-bold">{t("completion.customerTitle")}</h2>
         <p>{t("completion.customerIntro")}</p>
         <Button fullWidth loading={busy && !reporting} loadingLabel={t("onboarding.saving")} disabled={!a.confirm_completion || busy}

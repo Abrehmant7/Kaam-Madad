@@ -56,10 +56,10 @@ export function TextField({ label, value, onChange, hint, errors = [], dir, trai
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
           className={[
-            "min-h-12 w-full rounded-xl border-2 bg-white px-3 py-2 text-lg",
+            "min-h-12 w-full rounded-xl border bg-[#fbfcff] px-3 py-2 text-lg",
             dir === "ltr" ? "font-sans text-start" : "",
             trailing ? "pe-14" : "",
-            invalid ? "border-danger" : "border-line focus:border-primary",
+            invalid ? "border-2 border-danger" : "border-field focus:border-primary",
           ].join(" ")}
           {...props}
         />

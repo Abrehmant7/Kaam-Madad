@@ -39,21 +39,22 @@ export const routes: RouteObject[] = [
       {
         element: <GuestOnly />,
         children: [
-          { index: true, element: <LandingPage /> },
+          { index: true, element: <LandingPage />, handle: { width: "wide" } },
           { path: "start", element: <StartPage /> },
           { path: "signup", element: <SignupPage /> },
           { path: "login", element: <LoginPage /> },
         ],
       },
-      { path: "catalog", element: <CatalogPreviewPage /> },
+      { path: "catalog", element: <CatalogPreviewPage />, handle: { width: "medium" } },
       {
         element: <RequireAuth />,
         children: [
           { path: "account", element: <AccountHomePage /> },
           { path: "account/phone", element: <PhoneConfirmationPage /> },
           { path: "voice-test", element: <VoiceTestPage /> },
-          { path: "conversations/:id", element: <ConversationPage /> },
-          { path: "bookings/:id", element: <BookingPage /> },
+          // Chat beside the quote terms on desktop.
+          { path: "conversations/:id", element: <ConversationPage />, handle: { width: "wide" } },
+          { path: "bookings/:id", element: <BookingPage />, handle: { width: "medium" } },
           { path: "reports", element: <ReportsPage /> },
           { path: "reports/new", element: <ReportNewPage /> },
           { path: "reports/:id", element: <ReportDetailPage /> },
@@ -63,25 +64,26 @@ export const routes: RouteObject[] = [
         path: "worker",
         element: <RequireAuth role="worker" />,
         children: [
-          { index: true, element: <WorkerDashboardPage /> },
-          { path: "setup/work", element: <OnboardingWorkPage /> },
-          { path: "setup/areas", element: <OnboardingAreasPage /> },
+          { index: true, element: <WorkerDashboardPage />, handle: { width: "wide" } },
+          // "Answer by voice" sits beside the manual choices on desktop.
+          { path: "setup/work", element: <OnboardingWorkPage />, handle: { width: "medium" } },
+          { path: "setup/areas", element: <OnboardingAreasPage />, handle: { width: "medium" } },
           // Event demo flow: two sample uploads. The M4 card scan + demo registry stays available, outside the default flow.
           { path: "verify", element: <DemoVerifyPage /> },
           { path: "verify/card", element: <VerifyIdentityPage /> },
-          { path: "invitations/:id", element: <WorkerInvitationPage /> },
+          { path: "invitations/:id", element: <WorkerInvitationPage />, handle: { width: "medium" } },
         ],
       },
       {
         path: "customer",
         element: <RequireAuth role="customer" />,
         children: [
-          { index: true, element: <CustomerDashboardPage /> },
+          { index: true, element: <CustomerDashboardPage />, handle: { width: "wide" } },
           { path: "requests/new", element: <DescribeJobPage /> },
           { path: "requests/:id", element: <JobDetailPage /> },
           { path: "requests/:id/details", element: <JobDetailsPage /> },
           { path: "requests/:id/review", element: <JobReviewPage /> },
-          { path: "requests/:id/workers", element: <FindWorkersPage /> },
+          { path: "requests/:id/workers", element: <FindWorkersPage />, handle: { width: "medium" } },
         ],
       },
       { path: "*", element: <NotFoundPage /> },

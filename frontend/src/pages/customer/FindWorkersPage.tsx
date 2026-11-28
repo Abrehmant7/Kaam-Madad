@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarCheck, Eye, EyeOff, MessagesSquare, Save, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { ArrowLeft, CalendarCheck, Check, Eye, EyeOff, MessagesSquare, Save, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 
@@ -49,7 +49,7 @@ export function FindWorkersPage() {
     const notConfirmed = data.state.error instanceof ApiError && data.state.error.code === "request_not_confirmed";
     return (
       <div className="space-y-4">
-        <h1 className="text-3xl font-bold text-primary">{t("rec.title")}</h1>
+        <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("rec.title")}</h1>
         {notConfirmed ? <Alert tone="warning">{t("errors.request_not_confirmed")}</Alert> : <LoadError error={data.state.error} onRetry={data.retry} />}
         <ButtonLink to={`/customer/requests/${id}`} variant="secondary" icon={<ArrowLeft className="size-5 rtl:-scale-x-100" aria-hidden />}>
           {t("rec.backToRequest")}
@@ -127,10 +127,10 @@ function Workers({ jobId, recs, catalog, history, urdu, reload }: {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-3xl font-bold text-primary">{t("rec.title")}</h1>
+      <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("rec.title")}</h1>
       <p className="text-muted">{t("rec.intro")}</p>
 
-      <section aria-labelledby="request-heading" className="space-y-1 rounded-2xl border border-line bg-surface p-4">
+      <section aria-labelledby="request-heading" className="space-y-1 card p-4">
         <h2 id="request-heading" className="font-bold">{t("rec.yourRequest")}</h2>
         <p>{`${label.trade(recs.request.trade)}: ${services(recs.request.services)}`}</p>
         <p>{`${label.area(recs.request.area)}${separator}${label.city(recs.request.city)}`}</p>
@@ -145,7 +145,7 @@ function Workers({ jobId, recs, catalog, history, urdu, reload }: {
       {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}
 
       {active && (
-        <section aria-labelledby="active-heading" className="space-y-3 rounded-2xl border-2 border-primary bg-white p-4">
+        <section aria-labelledby="active-heading" className="space-y-3 card-action p-4">
           <h2 id="active-heading" className="flex items-center gap-2 text-lg font-bold">
             <Send className="size-5" aria-hidden />
             {t("rec.active.title")}
@@ -186,7 +186,7 @@ function Workers({ jobId, recs, catalog, history, urdu, reload }: {
               const invitedHere = active?.worker.worker_id === card.worker_id;
               const verification = VERIFICATION_KEYS[card.verification.status as keyof typeof VERIFICATION_KEYS];
               return (
-                <li key={card.worker_id} className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
+                <li key={card.worker_id} className="space-y-3 card p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <UserRound className="size-5 text-primary" aria-hidden />
                     <span className="font-bold">{workerTitle(card.trade, card.worker_id, catalog, language, t)}</span>
@@ -200,9 +200,10 @@ function Workers({ jobId, recs, catalog, history, urdu, reload }: {
                     {card.is_new && <StatusBadge tone="neutral" icon={<Sparkles className="size-4" aria-hidden />}>{t("rec.new")}</StatusBadge>}
                     {invitedHere && <StatusBadge tone="info">{t("rec.invited")}</StatusBadge>}
                   </div>
-                  <ul className="list-inside list-disc space-y-1">
+                  <ul className="flex flex-wrap gap-1.5" aria-label={t("rec.reasonsLabel")}>
                     {card.reasons.map((reason) => (
-                      <li key={reason.code}>
+                      <li key={reason.code} className="inline-flex items-center gap-1 rounded-full bg-primary-soft px-2.5 py-0.5 text-sm text-primary-strong">
+                        <Check className="size-4 shrink-0" aria-hidden />
                         {reason.code === "speciality" && t("rec.reason.speciality", { services: services(reason.services) })}
                         {reason.code === "offers" && t("rec.reason.offers", { services: services(reason.services) })}
                         {reason.code === "serves_area" && t("rec.reason.servesArea", { area: label.area(reason.area) })}

@@ -53,7 +53,7 @@ export function CatalogPreviewPage() {
   if (base.status === "error") {
     return (
       <div className="space-y-3">
-        <h1 className="text-3xl font-bold text-primary">{t("catalog.title")}</h1>
+        <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("catalog.title")}</h1>
         <Alert tone="danger">{describeError(base.error, t)}</Alert>
         <Button icon={<RefreshCw className="size-5" aria-hidden />} onClick={() => setAttempt((n) => n + 1)}>
           {t("common.retry")}
@@ -69,7 +69,7 @@ export function CatalogPreviewPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold text-primary">{t("catalog.title")}</h1>
+        <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("catalog.title")}</h1>
         <p className="text-sm text-muted">{t("catalog.intro")}</p>
       </div>
 

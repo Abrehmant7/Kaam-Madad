@@ -187,7 +187,7 @@ export function MessageThread({ invitationId, canWrite, onActivity, onClosed }: 
   }
 
   return (
-    <section aria-labelledby="messages-heading" className="space-y-3">
+    <section aria-labelledby="messages-heading" className="card space-y-3 p-4">
       <h2 id="messages-heading" className="flex items-center gap-2 text-lg font-bold">
         <MessageSquareText className="size-5" aria-hidden />
         {t("conv.messages")}

@@ -66,7 +66,7 @@ export function ReviewPanel({ booking, onDone }: { booking: bookingsApi.Booking;
 
   if (booking.review) {
     return (
-      <section aria-labelledby="review-heading" className="space-y-2 rounded-2xl border border-line bg-white p-4">
+      <section aria-labelledby="review-heading" className="space-y-2 card p-4">
         <h2 id="review-heading" className="text-lg font-bold">{booking.role === "customer" ? t("review.yours") : t("review.forYou")}</h2>
         <Stars rating={booking.review.rating} />
         {booking.review.text && <p dir={textDir(booking.review.text)} className="whitespace-pre-line">“{booking.review.text}”</p>}
@@ -116,7 +116,7 @@ export function ReviewPanel({ booking, onDone }: { booking: bookingsApi.Booking;
   }
 
   return (
-    <section aria-labelledby="review-form-heading" className="space-y-3 rounded-2xl border-2 border-primary bg-white p-4">
+    <section aria-labelledby="review-form-heading" className="space-y-3 card-action p-4">
       <h2 id="review-form-heading" className="text-lg font-bold">{t("review.title")}</h2>
       <p className="text-sm">{t("review.intro")}</p>
       <StarPicker value={rating} onChange={setRating} />

@@ -33,7 +33,7 @@ export function TextArea({ label, value, onChange, hint, errors = [], id, rows =
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={errors.length > 0 || undefined}
         aria-describedby={describedBy}
-        className={`w-full rounded-xl border-2 bg-white px-3 py-2 text-lg ${errors.length ? "border-danger" : "border-line focus:border-primary"}`}
+        className={`w-full rounded-xl border bg-[#fbfcff] px-3 py-2 text-lg ${errors.length ? "border-2 border-danger" : "border-field focus:border-primary"}`}
         {...props}
       />
       <FieldErrors id={`${inputId}-errors`} messages={errors} />

@@ -59,8 +59,11 @@ GROQ_API_KEY=<key>
 
 Optional: `ELEVENLABS_STT_MODEL` (default `scribe_v3`), `ELEVENLABS_STT_URDU_FALLBACK_MODEL` (default `scribe_v2`),
 `GROQ_MODEL` / `GROQ_INTERPRETATION_MODEL` / `GROQ_AGREEMENT_MODEL` (default `openai/gpt-oss-120b`),
-`GROQ_INTERPRETATION_REASONING_EFFORT` (`low`), `GROQ_AGREEMENT_REASONING_EFFORT` (`medium`),
-`GROQ_MAX_COMPLETION_TOKENS` (6000), `AI_PROVIDER_TIMEOUT_SECONDS` (20) and `AI_PROVIDER_MAX_RETRIES` (1).
+`GROQ_INTERPRETATION_REASONING_EFFORT` (`low`), `GROQ_AGREEMENT_REASONING_EFFORT` (`high`; a Groq schema
+rejection is retried once at `medium`), `GROQ_MAX_COMPLETION_TOKENS` (2500), `GROQ_AGREEMENT_MAX_COMPLETION_TOKENS`
+(3500), `GROQ_TEMPERATURE` (0.2), `AI_PROVIDER_TIMEOUT_SECONDS` (20) and `AI_PROVIDER_MAX_RETRIES` (1).
+On Groq's free tier the requested maximum counts against 8000 tokens per minute: back-to-back checks can briefly
+return "limit reached" (the app shows "could not run" with a retry).
 
 - **ElevenLabs key permissions:** one key serves both uses. If the key's scope is restricted, enable **Text to Speech**
   (read-aloud) and **Speech to Text** (transcription). A key without Speech to Text access reports
@@ -123,6 +126,17 @@ a customer, and demo worker `03009990101` / `Demo-Worker-2026`.
 
 Without keys (development fixtures), the same flow runs and every simulated result is labelled "Simulated result".
 In fixture mode the Urdu description is assembled from catalog labels, not translated.
+
+## Theme
+
+The interface follows the Kaam Madad theme:
+- **Palette:** navy/indigo and gold.
+- **Hero:** the electrician photo.
+- **Fonts:** Noto Naskh Arabic for Urdu text and Noto Nastaliq Urdu for headings, both bundled locally.
+- **Navigation:** role-aware; a sidebar on desktop and a bottom bar on phones.
+
+The reference ZIP (`frontend/Kaam-Madad-Frontend.zip`) is a visual reference only. It is ignored by git and not part of
+the build. Details are in [docs/progress.md](docs/progress.md).
 
 ## Stack
 

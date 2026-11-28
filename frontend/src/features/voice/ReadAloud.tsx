@@ -13,7 +13,12 @@ import { SimulatedBadge } from "./SimulatedBadge";
  * synthesis failure never hides information; failures offer a retry. Audio is
  * fetched privately and played from a blob URL.
  */
-export function ReadAloud({ text, language }: { text: string; language: "ur" | "en" }) {
+export function ReadAloud({ text, language, showText = true }: {
+  text: string;
+  language: "ur" | "en";
+  /** False only where the same details are already shown next to the button (e.g. the invitation card). */
+  showText?: boolean;
+}) {
   const { t } = useI18n();
   const [state, setState] = useState<"idle" | "loading" | "playing" | "error">("idle");
   const [failure, setFailure] = useState<unknown>(null);
@@ -56,12 +61,14 @@ export function ReadAloud({ text, language }: { text: string; language: "ur" | "
 
   return (
     <div className="space-y-3">
-      <blockquote dir="auto" lang={language} className="rounded-xl border border-line bg-white p-3">
-        {text}
-      </blockquote>
+      {showText && (
+        <blockquote dir="auto" lang={language} className="rounded-xl border border-line bg-white p-3">
+          {text}
+        </blockquote>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button
-          variant="secondary"
+          variant="soft"
           loading={state === "loading"}
           loadingLabel={t("audio.loading")}
           icon={state === "error" ? <RefreshCw className="size-5" aria-hidden /> : <Volume2 className="size-5" aria-hidden />}

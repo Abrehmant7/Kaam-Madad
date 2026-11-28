@@ -102,7 +102,7 @@ export function PhoneConfirmationPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-3xl font-bold text-primary">{t("phone.title")}</h1>
+      <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("phone.title")}</h1>
 
       {params.get("welcome") === "1" && <Alert tone="success">{t("signup.success")}</Alert>}
 
@@ -127,7 +127,7 @@ export function PhoneConfirmationPage() {
           {!confirmed && provider && !provider.available && <Alert tone="info">{t("phone.unavailable")}</Alert>}
 
           {!confirmed && provider?.available && (
-            <section className="space-y-4 rounded-2xl border border-line bg-white p-4 shadow-sm">
+            <section className="space-y-4 card p-4">
               {provider.simulated && <Alert tone="demo">{t("phone.demoExplainer")}</Alert>}
 
               {demoCode && (

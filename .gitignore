@@ -48,3 +48,7 @@ desktop.ini
 # Local voice samples from check_ai_providers --save-speech (never commit audio)
 backend/*.mp3
 backend/*.wav
+
+# Theme reference (visual reference only; never committed or built)
+frontend/Kaam-Madad-Frontend.zip
+frontend/Kaam-Madad-Frontend/

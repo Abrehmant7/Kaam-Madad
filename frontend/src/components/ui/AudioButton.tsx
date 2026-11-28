@@ -65,7 +65,7 @@ export function AudioButton({ label, src, onPlay, resolveSrc }: AudioButtonProps
         onClick={() => void play()}
         aria-label={`${playing ? t("audio.stop") : t("audio.play")}: ${label}`}
         aria-busy={state === "loading" || undefined}
-        className="inline-flex min-h-11 items-center gap-2 rounded-xl border-2 border-primary bg-white px-4 font-bold text-primary hover:bg-surface"
+        className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary-soft px-4 font-bold text-primary hover:bg-[#dce6ff]"
       >
         {state === "loading" ? (
           <LoaderCircle className="size-5 motion-safe:animate-spin" aria-hidden />

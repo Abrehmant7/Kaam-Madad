@@ -1,4 +1,5 @@
 import { RefreshIcon, WarningIcon } from "../components/icons";
+import { buttonClasses } from "../components/ui/Button";
 import { useI18n } from "../i18n/context";
 
 /** Shown when a route fails to render. Never displays internal error details. */
@@ -12,7 +13,7 @@ export function RouteErrorPage() {
         <h1 className="text-2xl font-bold">{t("error.title")}</h1>
       </div>
       <p>{t("error.body")}</p>
-      <button type="button" className="btn-primary" onClick={() => window.location.reload()}>
+      <button type="button" className={buttonClasses("primary")} onClick={() => window.location.reload()}>
         <RefreshIcon className="size-5" />
         <span>{t("error.reload")}</span>
       </button>

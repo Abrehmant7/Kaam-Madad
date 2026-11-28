@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -117,6 +117,7 @@ describe("restricted account", () => {
     });
     renderApp("/customer", "en");
     expect(await screen.findByText(en["restricted.title"])).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: en["report.mine"] })).toBeInTheDocument();
+    // The notice on the page (navigation also offers "My reports").
+    expect(within(screen.getByRole("main")).getByRole("link", { name: en["report.mine"] })).toBeInTheDocument();
   });
 });

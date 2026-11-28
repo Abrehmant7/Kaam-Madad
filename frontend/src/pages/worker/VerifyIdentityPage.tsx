@@ -81,7 +81,7 @@ function ReviewForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate aria-labelledby="review-heading" className="space-y-4 rounded-2xl border border-line bg-white p-4">
+    <form onSubmit={handleSubmit} noValidate aria-labelledby="review-heading" className="space-y-4 card p-4">
       <h2 id="review-heading" className="text-lg font-bold">
         {t("verify.review.heading")}
       </h2>
@@ -178,7 +178,7 @@ export function VerifyIdentityPage() {
 
   const header = (
     <div className="space-y-3">
-      <h1 className="text-3xl font-bold text-primary">{t("verify.title")}</h1>
+      <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("verify.title")}</h1>
       <InstructionAudio id="identity_consent" />
     </div>
   );
@@ -197,7 +197,7 @@ export function VerifyIdentityPage() {
     return (
       <div className="space-y-5">
         {header}
-        <section aria-labelledby="why-heading" className="space-y-2 rounded-2xl border border-line bg-white p-4">
+        <section aria-labelledby="why-heading" className="space-y-2 card p-4">
           <h2 id="why-heading" className="text-lg font-bold">
             {t("verify.why.heading")}
           </h2>
@@ -222,7 +222,7 @@ export function VerifyIdentityPage() {
   if (FINAL.includes(current.status)) {
     return (
       <div className="space-y-5">
-        <h1 className="text-3xl font-bold text-primary">{t("verify.title")}</h1>
+        <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("verify.title")}</h1>
         <Alert
           tone={current.status === "demo_approved" ? "demo" : "success"}
           title={current.status === "demo_approved" ? undefined : t(`worker.identity.status.${current.status}`)}
@@ -279,7 +279,7 @@ export function VerifyIdentityPage() {
         </Alert>
       )}
 
-      <section aria-labelledby="photo-heading" className="space-y-3 rounded-2xl border border-line bg-white p-4">
+      <section aria-labelledby="photo-heading" className="space-y-3 card p-4">
         <h2 id="photo-heading" className="text-lg font-bold">
           {t("verify.photo.heading")}
         </h2>

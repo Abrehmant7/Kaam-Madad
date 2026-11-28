@@ -20,8 +20,92 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | M8 Booking and arrival | ✅ Complete (27 Nov 2026) — two-session walk-through with fixture AI; PostgreSQL concurrency tests |
 | M9 Completion and feedback | ✅ Complete (27 Nov 2026) — Urdu two-session walk-through with fixture AI; PostgreSQL race tests |
 | M10 Reporting and moderation | ✅ Complete (27 Nov 2026) — Urdu report through staff resolution; separate customer, worker and staff sessions |
-| Pitch improvements (ElevenLabs + Groq, voice signup, demo verification, Urdu descriptions) | ✅ Implemented (27 Nov 2026). Groq not live-checked yet (no key); Scribe Urdu needs the `scribe_v2` fallback |
+| Pitch improvements (ElevenLabs + Groq, voice signup, demo verification, Urdu descriptions) | ✅ Implemented (27 Nov 2026). Groq live-checked 28 Nov; Scribe Urdu needs the `scribe_v2` fallback |
+| Theme and UX pass (Kaam Madad theme, navigation, next steps, quote summary) | ✅ Implemented (28 Nov 2026); live two-role rehearsal in the app |
 | M11 Integration and delivery | ⬜ Next |
+
+---
+
+## Theme and UX pass — implemented (28 Nov 2026)
+
+Visual reference: the Kaam Madad theme ZIP (`frontend/Kaam-Madad-Frontend.zip`). It is used only as a reference and
+is never committed or built. It is ignored in `.gitignore`, and none of its JavaScript is copied. From it, the app
+reuses the palette, the electrician hero photo (`src/assets/hero-electrician.webp`), the brand mark, and the Noto Naskh
+Arabic body font (OFL, `src/assets/fonts/`). The Noto Nastaliq Urdu display font comes from the existing `@fontsource`
+package.
+
+### Delivered
+
+- **Theme:** navy/indigo with warm gold; Naskh for Urdu body text and labels (legible on small screens); Nastaliq for
+  the brand and hero headings. White cards, and "action" cards with a gold edge.
+  - Form-control borders keep at least 3:1 contrast.
+  - The focus ring is a visible 3 px indigo ring, gold on dark surfaces.
+- **Shell:**
+  - Desktop: a role-aware sidebar.
+  - Phones: a four-item bottom bar using real routes or dashboard sections (`/worker#invitations`, `#bookings`,
+    `/customer#requests`, and so on). The main content leaves room above the bar.
+  - Every screen: the language switch, the demo label and log out stay in the top bar.
+  - Page width per route: task forms stay narrow; dashboards and the conversation are wide.
+- **Landing and dashboards:**
+  - "مجھے کام چاہیے" and "مجھے کاریگر چاہیے" are the entry points.
+  - Each dashboard shows a "next step" computed from real state: bookings, verification, invitations, the accepting
+    switch, drafts and confirmed requests.
+  - There are no sample people, ratings or counters. The outdated "not available yet" texts are gone.
+- **Worker signup:** still three steps followed by demo verification. "Answer by voice" sits beside the manual tiles,
+  with numbered steps (record → write down → check), a live status, and "try again" keeping the recording. "Listen to
+  my choices" is on step 3.
+- **Customer request:**
+  - Speak and Type are equal tiles.
+  - Text and choices survive a language switch (tested).
+  - The review step shows "What the worker will receive" (the approved Urdu version, or the original marked with its
+    language).
+- **Worker invitation:** the task, area, time and Listen control are in one card above the next action.
+  - `SharedJob.tsx` now reads an original Urdu description in Urdu playback when there is no approved translation.
+  - Approved Urdu is still preferred, and the structured-only fallback remains for untranslated English (regression
+    tests in `SharedJob.test.ts`).
+- **Quote and agreement:**
+  - Desktop: the chat beside the quote panel.
+  - Phones: a summary above the chat (known total, who supplies materials, blocking issues) linking to the full quote.
+  - The real check status, sources, clarification, revision, manual review and accept safeguards are unchanged.
+- **Booking, arrival, completion, review and reports:** same card and header treatment.
+- **Groq agreement check, after live runs:**
+  - A glossary of the coded quote terms and finding codes.
+  - Messages are numbered, and the instruction says to judge by each person's latest statement.
+  - High reasoning effort, with one retry at medium after a Groq schema rejection.
+  - Temperature 0.2.
+  - Completion budgets of 2500 for interpretation and 3500 for the agreement check: the free tier counts the requested
+    maximum against 8000 tokens per minute.
+  - `check_ai_providers` waits for rate limits.
+
+### Checks (28 Nov 2026)
+
+| Check | Result |
+|---|---|
+| Frontend typecheck / tests / build | ✅ No errors / **117 passed** (10 new: navigation, next step, language switch keeps input, quote summary, SharedJob playback; async test timeout raised to 3 s for cold runs) / built; `dist` holds no reference-ZIP files |
+| Backend suite | ✅ **409 tests** OK (new: Groq glossary/order and effort fallback) |
+| Layout audit in real Chrome (headless, DevTools protocol) | ✅ Guest pages at 360/390/1280 px in Urdu and English, plus 30 signed-in page/width checks. No horizontal overflow, every control labelled, the last action never under the bottom bar, focus ring visible |
+
+### Live-provider results (fictional data) vs fixtures
+
+| Step | Provider | Result |
+|---|---|---|
+| `check_ai_providers --only interpretation` | **Live Groq** | ✅ All four: English job → Urdu description with AC service negated, G-9; signup work (UPS negated) and areas (F-8 excluded). 1.4–2.0 s |
+| `check_ai_providers --only agreement_check` | **Live Groq** | ✅ Urdu sample, pitch v1 (one materials finding), pitch v2 revised (no findings), Roman Urdu; the timing case passed (materials + timing) when spaced. Before the glossary and ordering: v2 gave a false positive. Repeated runs at high effort: v2 6/6 clean, v1 3/3 |
+| Browser rehearsal, worker voice answer (screen 2) | **Live ElevenLabs Scribe** (v3 → v2 Urdu fallback) + **live Groq** | ✅ Fan installation and wiring offered, UPS "not offered" (negation), filled as editable tiles |
+| Silent clip on screen 3 | Live Scribe | ✅ "No words heard" failure state; recording kept; manual tiles used |
+| Listen to my choices; Urdu invitation read-aloud | **Live ElevenLabs** `eleven_v3` | ✅ HTTP 201 audio |
+| English request → Urdu description → worker | **Live Groq** | ✅ Original kept, Urdu suggested, approved by the customer, and shown first to the Urdu worker |
+| Quote v1 labour only → clarification → v2 with materials | **Live Groq** agreement check | ✅ v1: exactly one materials finding with sources. v2: `passed`, `simulated=False`, no manual review. Then accepted → booking |
+| Unit and component tests | Fixtures / mocked HTTP | As above |
+
+### Notes
+
+- Headless full-page screenshots draw fixed elements (header, sidebar, bottom bar) part-way down. That is an artifact
+  of capturing beyond the viewport, not the layout.
+- Before the rehearsal, the dev machine had a stale second `runserver` on port 8000 from an earlier session, which
+  made one run stall. Only one server should listen on 8000.
+- Still to check by a person: real phones (microphone, camera, native pickers) and the listening quality of Urdu
+  speech.
 
 ---
 

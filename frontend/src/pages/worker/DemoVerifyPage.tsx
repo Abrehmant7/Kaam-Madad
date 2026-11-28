@@ -61,7 +61,7 @@ function UploadSlot({ slot, title, icon, picked, onPick, disabled }: {
   }
 
   return (
-    <section aria-label={title} className="space-y-3 rounded-2xl border border-line bg-white p-4">
+    <section aria-label={title} className="space-y-3 card p-4">
       <h2 className="flex items-center gap-2 text-lg font-bold">
         {icon}
         {title}
@@ -110,7 +110,7 @@ export function DemoVerifyPage() {
   );
   const header = (
     <div className="space-y-2">
-      <h1 className="text-3xl font-bold text-primary">{t("demoVerify.title")}</h1>
+      <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("demoVerify.title")}</h1>
       <StatusBadge tone="warning">{t("demoVerify.sampleOnly")}</StatusBadge>
     </div>
   );

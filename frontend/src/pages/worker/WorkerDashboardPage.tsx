@@ -1,7 +1,8 @@
 import { BadgeCheck, CirclePause, CirclePlay, HardHat, IdCard, List, MapPin, Mic, Pencil, Phone, ShieldCheck, Wrench } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { Link, Navigate } from "react-router";
 
+import heroImage from "../../assets/hero-electrician.webp";
 import * as catalogApi from "../../api/catalog";
 import * as workersApi from "../../api/workers";
 import { useAuth } from "../../auth/context";
@@ -9,9 +10,11 @@ import { PATHS } from "../../auth/paths";
 import { Ltr } from "../../components/Ltr";
 import { Alert } from "../../components/ui/Alert";
 import { Button, ButtonLink } from "../../components/ui/Button";
+import { Card } from "../../components/ui/PageHeader";
 import { PageLoader } from "../../components/ui/PageLoader";
 import { StatusBadge, type BadgeTone } from "../../components/ui/StatusBadge";
 import { BookingList } from "../../features/bookings/BookingList";
+import { WorkerNextStep } from "../../features/dashboard/NextStep";
 import { AccountNotices } from "../../features/reports/AccountNotices";
 import { WorkerFeedback } from "../../features/bookings/WorkerFeedback";
 import { InvitationInbox } from "../../features/invitations/InvitationInbox";
@@ -31,18 +34,6 @@ const IDENTITY_TONE: Record<workersApi.IdentityStatus, BadgeTone> = {
   expired: "danger",
   suspended: "danger",
 };
-
-function Card({ id, title, icon, children }: { id: string; title: string; icon: ReactNode; children: ReactNode }) {
-  return (
-    <section aria-labelledby={id} className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
-      <h2 id={id} className="flex items-center gap-2 text-lg font-bold">
-        {icon}
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 /**
  * Worker dashboard (M4). Usable without identity verification. Profile completion, identity
@@ -102,19 +93,36 @@ export function WorkerDashboardPage() {
 
   return (
     <div className="space-y-5">
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold text-primary">{t("worker.dashboard.title")}</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge tone="info" icon={<HardHat className="size-4" aria-hidden />}>{t("role.worker.badge")}</StatusBadge>
-          {user.is_demo && <StatusBadge tone="warning">{t("demo.accountBadge")}</StatusBadge>}
+      <section aria-labelledby="worker-title" className="hero on-dark flex min-h-[12rem] items-center px-5 py-6 sm:min-h-[14rem] sm:px-8"
+        style={{ "--hero-image": `url(${heroImage})` } as CSSProperties}>
+        <div className="relative max-w-[68%] space-y-2 sm:max-w-[60%]">
+          <h1 id="worker-title" className="font-display text-2xl text-white sm:text-3xl">{t("worker.dashboard.title")}</h1>
+          <p className="text-sm text-[#dee7ff]">{t("worker.dashboard.subtitle")}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-3 py-0.5 text-sm font-bold">
+              <HardHat className="size-4" aria-hidden />
+              {t("role.worker.badge")}
+            </span>
+            {user.is_demo && <StatusBadge tone="warning">{t("demo.accountBadge")}</StatusBadge>}
+          </div>
+          <p className="flex flex-wrap items-center gap-1.5 text-sm text-[#dee7ff]">
+            <span>{t("home.signedInAs")}</span>
+            <Ltr>{user.phone_number_masked}</Ltr>
+          </p>
         </div>
-        <p className="flex flex-wrap items-center gap-1.5 text-sm text-muted">
-          <span>{t("home.signedInAs")}</span>
-          <Ltr>{user.phone_number_masked}</Ltr>
-        </p>
-      </div>
+      </section>
 
-      <Card id="eligibility-heading" title={t("worker.eligibility.heading")} icon={<BadgeCheck className="size-5" aria-hidden />}>
+      <AccountNotices />
+
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.75fr)_minmax(17rem,1fr)]">
+        <div className="space-y-5">
+          <WorkerNextStep dashboard={dashboard} />
+          <InvitationInbox />
+          <BookingList />
+          <WorkerFeedback />
+        </div>
+        <div className="space-y-5">
+      <Card id="eligibility" title={t("worker.eligibility.heading")} icon={<BadgeCheck className="size-5" aria-hidden />}>
         <StatusBadge tone={eligibility.can_take_jobs ? "success" : "neutral"}>
           {eligibility.can_take_jobs ? t("worker.eligibility.yes") : t("worker.eligibility.no")}
         </StatusBadge>
@@ -127,12 +135,7 @@ export function WorkerDashboardPage() {
         )}
       </Card>
 
-      <AccountNotices />
-      <BookingList />
-      <InvitationInbox />
-      <WorkerFeedback />
-
-      <Card id="identity-heading" title={t("worker.identity.heading")} icon={<IdCard className="size-5" aria-hidden />}>
+      <Card id="identity" title={t("worker.identity.heading")} icon={<IdCard className="size-5" aria-hidden />}>
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge tone={IDENTITY_TONE[identity.status]}>{t(`worker.identity.status.${identity.status}`)}</StatusBadge>
         </div>
@@ -151,7 +154,7 @@ export function WorkerDashboardPage() {
         )}
       </Card>
 
-      <Card id="profile-heading" title={t("worker.profile.heading")} icon={<Wrench className="size-5" aria-hidden />}>
+      <Card id="profile" title={t("worker.profile.heading")} icon={<Wrench className="size-5" aria-hidden />}>
         <StatusBadge tone={dashboard.onboarding.complete ? "success" : "neutral"}>
           {dashboard.onboarding.complete ? t("worker.profile.complete") : t("worker.profile.incomplete")}
         </StatusBadge>
@@ -174,7 +177,7 @@ export function WorkerDashboardPage() {
         </div>
       </Card>
 
-      <Card id="accepting-heading" title={t("worker.accepting.label")} icon={profile.accepting_requests ? <CirclePlay className="size-5" aria-hidden /> : <CirclePause className="size-5" aria-hidden />}>
+      <Card id="accepting" title={t("worker.accepting.label")} icon={profile.accepting_requests ? <CirclePlay className="size-5" aria-hidden /> : <CirclePause className="size-5" aria-hidden />}>
         <StatusBadge tone={profile.accepting_requests ? "success" : "neutral"}>
           {profile.accepting_requests ? t("worker.accepting.on") : t("worker.accepting.off")}
         </StatusBadge>
@@ -191,7 +194,7 @@ export function WorkerDashboardPage() {
         </Button>
       </Card>
 
-      <Card id="phone-heading" title={t("home.phoneStatus")} icon={<Phone className="size-5" aria-hidden />}>
+      <Card id="phone" title={t("home.phoneStatus")} icon={<Phone className="size-5" aria-hidden />}>
         <PhoneConfirmationBadge confirmation={user.phone_confirmation} />
         <div>
           <ButtonLink to={PATHS.phone} variant="secondary" icon={<ShieldCheck className="size-5" aria-hidden />}>
@@ -209,6 +212,8 @@ export function WorkerDashboardPage() {
           <List className="size-5" aria-hidden />
           {t("landing.catalogLink")}
         </Link>
+      </div>
+        </div>
       </div>
     </div>
   );

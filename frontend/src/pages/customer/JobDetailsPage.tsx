@@ -163,8 +163,8 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
   const maxDate = karachiDate(90);
 
   return (
-    <form onSubmit={onSubmit} noValidate className="space-y-6">
-      <StepHeader step={2} title={t("jobs.details.title")} />
+    <form onSubmit={onSubmit} noValidate className="card space-y-6 p-4 sm:p-6">
+      <StepHeader step={2} flow="request" title={t("jobs.details.title")} />
       <p className="text-muted">{t("jobs.details.intro")}</p>
 
       {suggestions && (
@@ -232,7 +232,7 @@ function DetailsForm({ job, catalog }: { job: jobsApi.JobRequest; catalog: JobCa
       </div>
       {city[0] && <IconTileGroup label={t("jobs.field.area")} mode="single" options={areaOptions} value={area} onChange={setArea} errors={errors.area} />}
 
-      <fieldset className="space-y-3 rounded-2xl border border-line bg-white p-4">
+      <fieldset className="space-y-3 card p-4">
         <legend className="flex items-center gap-2 px-1 font-bold">
           <Clock className="size-5" aria-hidden />
           {t("jobs.field.when")}

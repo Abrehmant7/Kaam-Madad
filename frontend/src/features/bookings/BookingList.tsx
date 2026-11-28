@@ -1,9 +1,12 @@
-import { CalendarCheck } from "lucide-react";
+import { CalendarCheck, CalendarX } from "lucide-react";
+import type { ReactNode } from "react";
 
 import * as bookingsApi from "../../api/bookings";
 import { workerRef } from "../../api/invitations";
 import { Ltr } from "../../components/Ltr";
 import { ButtonLink } from "../../components/ui/Button";
+import { Card } from "../../components/ui/PageHeader";
+import { PageLoader } from "../../components/ui/PageLoader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useI18n } from "../../i18n/context";
 import { labeller, loadJobCatalog } from "../jobs/catalog";
@@ -39,22 +42,28 @@ function nextStep(card: bookingsApi.BookingCard): string | null {
   return null;
 }
 
-/** "My bookings" on both dashboards, grouped by stage. Renders nothing until there is at least one booking. */
+/** "My bookings" on both dashboards (section #bookings), grouped by stage, with an empty state. */
 export function BookingList() {
   const { t, language } = useI18n();
   const data = useLoad((signal) => Promise.all([bookingsApi.listBookings(signal), loadJobCatalog(signal)]), []);
-  if (data.state.status === "loading") return null;
-  if (data.state.status === "error") return <LoadError error={data.state.error} onRetry={data.retry} />;
+  const card = (children: ReactNode) => (
+    <Card id="bookings" title={t("booking.list.heading")} icon={<CalendarCheck className="size-6" aria-hidden />}>{children}</Card>
+  );
+  if (data.state.status === "loading") return card(<PageLoader />);
+  if (data.state.status === "error") return card(<LoadError error={data.state.error} onRetry={data.retry} />);
   const [page, catalog] = data.state.data;
-  if (page.results.length === 0) return null;
+  if (page.results.length === 0) {
+    return card(
+      <p className="flex items-center gap-2 text-muted">
+        <CalendarX className="size-5 shrink-0" aria-hidden />
+        {t("booking.list.empty")}
+      </p>,
+    );
+  }
   const label = labeller(catalog, language);
 
-  return (
-    <section aria-labelledby="bookings-heading" className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
-      <h2 id="bookings-heading" className="flex items-center gap-2 text-lg font-bold">
-        <CalendarCheck className="size-6 text-primary" aria-hidden />
-        {t("booking.list.heading")}
-      </h2>
+  return card(
+    <>
       {GROUPS.map((group) => {
         const cards = page.results.filter((card) => group.statuses.includes(card.status));
         if (cards.length === 0) return null;
@@ -65,7 +74,7 @@ export function BookingList() {
               {cards.map((card) => {
                 const next = nextStep(card);
                 return (
-                  <li key={card.id} className="space-y-2 rounded-xl border border-line p-3">
+                  <li key={card.id} className="space-y-2 rounded-xl border border-line bg-[#fbfcff] p-3">
                     <StatusBadge tone={STATUS_TONE[card.status]}>{t(`booking.status.${card.status}`)}</StatusBadge>
                     <p className="font-bold">
                       {label.trade(card.trade)}: {card.services.map((code) => label.service(code)).join(language === "ur" ? "، " : ", ")}
@@ -90,6 +99,6 @@ export function BookingList() {
           </div>
         );
       })}
-    </section>
+    </>,
   );
 }

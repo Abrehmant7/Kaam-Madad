@@ -46,7 +46,7 @@ export function QuoteForm({ invitationId, start, onDone }: { invitationId: strin
   }
 
   return (
-    <section aria-labelledby="quote-form-heading" className="space-y-4 rounded-2xl border-2 border-primary/40 bg-white p-4">
+    <section aria-labelledby="quote-form-heading" className="space-y-4 card-action p-4">
       <h3 id="quote-form-heading" className="text-lg font-bold">{t("quote.form.title")}</h3>
       <p className="text-sm text-muted">{t("quote.form.intro")}</p>
       {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}

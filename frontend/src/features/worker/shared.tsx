@@ -41,18 +41,33 @@ export function LoadError({ error, onRetry }: { error: unknown; onRetry: () => v
   );
 }
 
-/** "Step 2 of 3" with a simple bar. Screen 1 is account creation. */
-export function StepHeader({ step, title }: { step: 1 | 2 | 3; title: string }) {
+const FLOW_LABELS = {
+  worker: ["onboarding.flow.account", "onboarding.flow.work", "onboarding.flow.areas"],
+  request: ["jobs.flow.describe", "jobs.flow.details", "jobs.flow.review"],
+} as const;
+
+/** "Step 2 of 3" with named steps (worker signup or customer request). Screen 1 of signup is account creation. */
+export function StepHeader({ step, title, flow }: { step: 1 | 2 | 3; title: string; flow?: keyof typeof FLOW_LABELS }) {
   const { t } = useI18n();
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <p className="text-sm font-bold text-muted">{t("onboarding.step", { current: step, total: 3 })}</p>
-      <div className="flex gap-1.5" aria-hidden>
+      <ol className="grid grid-cols-3 gap-2" aria-hidden={flow ? undefined : true}>
         {[1, 2, 3].map((n) => (
-          <span key={n} className={`h-2 flex-1 rounded-full ${n <= step ? "bg-primary" : "bg-line"}`} />
+          <li key={n} aria-current={n === step ? "step" : undefined}
+            className={`border-t-4 pt-1.5 text-xs leading-tight sm:text-sm ${
+              n === step ? "border-primary font-bold text-primary" : n < step ? "border-primary/40 text-muted" : "border-line text-muted"
+            }`}>
+            {flow && FLOW_LABELS[flow][n - 1] && (
+              <>
+                <span className="me-1 inline-grid size-5 place-items-center rounded-full bg-primary-soft font-sans text-[11px] font-bold text-primary">{n}</span>
+                {t(FLOW_LABELS[flow][n - 1] ?? "onboarding.flow.account")}
+              </>
+            )}
+          </li>
         ))}
-      </div>
-      <h1 className="text-3xl font-bold text-primary">{title}</h1>
+      </ol>
+      <h1 className="text-2xl font-bold text-ink sm:text-3xl">{title}</h1>
     </div>
   );
 }

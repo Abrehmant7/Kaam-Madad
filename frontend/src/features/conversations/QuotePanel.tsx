@@ -21,6 +21,7 @@ import { AcceptQuote } from "../bookings/AcceptQuote";
 import { QuoteForm } from "./QuoteForm";
 import { labourText, materialsText, money, quoteSpeech, visitText, windowText } from "./quoteText";
 
+
 function Row({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
@@ -66,7 +67,7 @@ export function TermsRows({ quote }: { quote: convApi.QuoteTerms & { totals: con
 export function QuoteCard({ quote }: { quote: convApi.Quote }) {
   const { t, language } = useI18n();
   return (
-    <dl className="space-y-3 rounded-2xl border border-line bg-white p-4">
+    <dl className="space-y-3 card p-4">
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone={quote.status === "submitted" && !quote.expired ? "info" : "neutral"}>
           {t("quote.versionLabel", { version: quote.version ?? "–" })} · {quote.expired && quote.status === "submitted" ? t("quote.status.expired") : t(`quote.status.${quote.status}`)}
@@ -169,8 +170,9 @@ function FindingItem({ finding, quote, invitationId, canAct, onChanged }: {
 const QUOTE_POLL_MS = 15000;
 const RUNNING_POLL_MS = 3000;
 
-/** Load the quotes and refresh them quietly: the worker's open form and typed notes are never unmounted. */
-function useQuotes(invitationId: string, refreshKey: number) {
+/** Load the quotes and refresh them quietly: the worker's open form and typed notes are never unmounted. Called
+ * once per conversation page and shared by the summary (mobile) and the full panel, so there is a single poll. */
+export function useQuotes(invitationId: string, refreshKey: number) {
   const [listing, setListing] = useState<convApi.QuotesListing | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
@@ -189,12 +191,63 @@ function useQuotes(invitationId: string, refreshKey: number) {
   return { listing, error, reload };
 }
 
+export type QuotesState = ReturnType<typeof useQuotes>;
+
+/**
+ * Compact quote status for small screens, shown above the chat: the known total, who supplies the materials, and
+ * whether anything still blocks acceptance — with a link to the full quote, its check and the accept action.
+ */
+export function QuoteSummary({ data }: { data: QuotesState }) {
+  const { t } = useI18n();
+  if (!data.listing) return null;
+  const { current, readiness } = data.listing;
+  const reason = (code: string) => (isTranslationKey(`quote.blocking.${code}`) ? t(`quote.blocking.${code}` as never) : code);
+  if (!current) {
+    return <p className="card p-3 text-sm text-muted">{t("quote.summary.none")}</p>;
+  }
+  const openIssues = current.findings.filter((finding) => finding.status === "open" && finding.blocking).length;
+  return (
+    <section aria-labelledby="quote-summary-heading" className="card space-y-2 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="quote-summary-heading" className="flex items-center gap-2 font-bold">
+          <FileText className="size-5 text-primary" aria-hidden />
+          {t("quote.versionLabel", { version: current.version ?? "–" })}
+        </h2>
+        {readiness.booking_id ? null : readiness.ready
+          ? <StatusBadge tone="success">{t("quote.summary.ready")}</StatusBadge>
+          : <StatusBadge tone="danger">{t("quote.summary.blocked")}</StatusBadge>}
+      </div>
+      <dl className="grid grid-cols-2 gap-2 text-sm">
+        <div className="rounded-lg bg-surface p-2">
+          <dt className="text-muted">{t("quote.field.total")}</dt>
+          <dd className="font-bold">
+            <Ltr>{money(current.totals?.known_total) ?? "—"}</Ltr>
+            {current.totals && !current.totals.complete && <span className="block text-xs font-normal text-warning-strong">{t("quote.plusUnknown")}</span>}
+          </dd>
+        </div>
+        <div className="rounded-lg bg-surface p-2">
+          <dt className="text-muted">{t("quote.field.materials")}</dt>
+          <dd className="font-bold">{materialsText(current, t)}</dd>
+        </div>
+      </dl>
+      {!readiness.ready && !readiness.booking_id && (
+        <ul className="list-inside list-disc text-sm font-bold text-danger-strong">
+          {readiness.blocking.slice(0, 3).map((code) => <li key={code}>{reason(code)}</li>)}
+          {openIssues > 0 && <li>{t("quote.summary.openIssues", { count: openIssues })}</li>}
+        </ul>
+      )}
+      <a href="#quote" className="inline-flex min-h-11 items-center font-bold text-primary underline-offset-4 hover:underline">
+        {t("quote.summary.see")}
+      </a>
+    </section>
+  );
+}
+
 /** Quotes for one invitation: current version, findings, readiness, history, and the worker's form. */
-export function QuotePanel({ invitationId, role, canWrite: open, refreshKey, booked }: {
-  invitationId: string; role: "customer" | "worker"; canWrite: boolean; refreshKey: number; booked: boolean;
+export function QuotePanel({ invitationId, role, canWrite: open, data, booked }: {
+  invitationId: string; role: "customer" | "worker"; canWrite: boolean; data: QuotesState; booked: boolean;
 }) {
   const { t, language } = useI18n();
-  const data = useQuotes(invitationId, refreshKey);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState<"check" | "manual" | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
@@ -223,7 +276,7 @@ export function QuotePanel({ invitationId, role, canWrite: open, refreshKey, boo
   const reason = (code: string) => (isTranslationKey(`quote.blocking.${code}`) ? t(`quote.blocking.${code}` as never) : code);
 
   return (
-    <section aria-labelledby="quote-heading" className="space-y-3">
+    <section id="quote" aria-labelledby="quote-heading" className="card scroll-mt-28 space-y-3 p-4">
       <h2 id="quote-heading" className="flex items-center gap-2 text-lg font-bold">
         <FileText className="size-5" aria-hidden />
         {t("quote.title")}

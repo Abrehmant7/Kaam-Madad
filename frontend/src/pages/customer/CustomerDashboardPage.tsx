@@ -1,14 +1,18 @@
-import { ClipboardList, House, List, MessageSquarePlus, Phone, ShieldCheck } from "lucide-react";
+import { ClipboardList, Flag, House, List, MessageSquarePlus, Phone, ShieldCheck } from "lucide-react";
+import type { CSSProperties } from "react";
 import { Link } from "react-router";
 
 import * as jobsApi from "../../api/jobs";
+import heroImage from "../../assets/hero-electrician.webp";
 import { useAuth } from "../../auth/context";
 import { PATHS } from "../../auth/paths";
 import { Ltr } from "../../components/Ltr";
 import { ButtonLink } from "../../components/ui/Button";
+import { Card } from "../../components/ui/PageHeader";
 import { PageLoader } from "../../components/ui/PageLoader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { BookingList } from "../../features/bookings/BookingList";
+import { CustomerNextStep } from "../../features/dashboard/NextStep";
 import { AccountNotices } from "../../features/reports/AccountNotices";
 import { type JobCatalog, labeller, loadJobCatalog } from "../../features/jobs/catalog";
 import { textDir } from "../../features/jobs/text";
@@ -23,7 +27,7 @@ function RequestCard({ job, catalog }: { job: jobsApi.JobListItem; catalog: JobC
   const draft = job.status === "draft";
   const task = job.trade ? `${label.trade(job.trade)}${job.services.length ? `: ${job.services.map(label.service).join(language === "ur" ? "، " : ", ")}` : ""}` : t("jobs.list.untitled");
   return (
-    <li className="space-y-2 rounded-xl border border-line p-3">
+    <li className="space-y-2 rounded-xl border border-line bg-[#fbfcff] p-3">
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone={draft ? "neutral" : "success"}>{draft ? t("jobs.status.draft") : t("jobs.status.confirmed")}</StatusBadge>
         {job.booking && <StatusBadge tone="info">{t(`booking.status.${job.booking.status}`)}</StatusBadge>}
@@ -49,82 +53,81 @@ function RequestCard({ job, catalog }: { job: jobsApi.JobListItem; catalog: JobC
   );
 }
 
-/** Customer dashboard (M5): describe a job, see "My requests", confirm the phone. */
+/** Customer dashboard: the next relevant step, "Describe your job", My requests (#requests), My bookings (#bookings). */
 export function CustomerDashboardPage() {
   const { t } = useI18n();
   const { user } = useAuth();
   const data = useLoad((signal) => Promise.all([jobsApi.listJobs(signal), loadJobCatalog(signal)]));
   if (!user) return null;
+  const jobs = data.state.status === "ready" ? data.state.data[0].results : null;
 
   return (
     <div className="space-y-5">
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold text-primary">{t("home.customer.title")}</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge tone="info" icon={<House className="size-4" aria-hidden />}>{t("role.customer.badge")}</StatusBadge>
-          {user.is_demo && <StatusBadge tone="warning">{t("demo.accountBadge")}</StatusBadge>}
-        </div>
-        <p className="flex flex-wrap items-center gap-1.5 text-sm text-muted">
-          <span>{t("home.signedInAs")}</span>
-          <Ltr>{user.phone_number_masked}</Ltr>
-        </p>
-      </div>
-
-      <ButtonLink to={PATHS.newJob} fullWidth icon={<MessageSquarePlus className="size-5" aria-hidden />}>
-        {t("jobs.describe.cta")}
-      </ButtonLink>
-
-      <AccountNotices />
-      <BookingList />
-
-      <section aria-labelledby="requests-heading" className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
-        <h2 id="requests-heading" className="flex items-center gap-2 text-lg font-bold">
-          <ClipboardList className="size-5" aria-hidden />
-          {t("jobs.list.heading")}
-        </h2>
-        {data.state.status === "loading" && <PageLoader />}
-        {data.state.status === "error" && <LoadError error={data.state.error} onRetry={data.retry} />}
-        {data.state.status === "ready" &&
-          (data.state.data[0].results.length === 0 ? (
-            <p className="text-muted">{t("jobs.list.empty")}</p>
-          ) : (
-            <ul className="space-y-2">
-              {data.state.data[0].results.map((job) => (
-                <RequestCard key={job.id} job={job} catalog={data.state.status === "ready" ? data.state.data[1] : { trades: [], services: [], areas: [] }} />
-              ))}
-            </ul>
-          ))}
-      </section>
-
-      <section aria-labelledby="phone-heading" className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
-        <h2 id="phone-heading" className="flex items-center gap-2 text-lg font-bold">
-          <Phone className="size-5" aria-hidden />
-          {t("home.phoneStatus")}
-        </h2>
-        <PhoneConfirmationBadge confirmation={user.phone_confirmation} />
-        <div>
-          <ButtonLink to={PATHS.phone} variant="secondary" icon={<ShieldCheck className="size-5" aria-hidden />}>
-            {t("home.managePhone")}
+      <section aria-labelledby="customer-title" className="hero on-dark flex min-h-[12rem] items-center px-5 py-6 sm:min-h-[14rem] sm:px-8"
+        style={{ "--hero-image": `url(${heroImage})` } as CSSProperties}>
+        <div className="relative max-w-[68%] space-y-2 sm:max-w-[60%]">
+          <h1 id="customer-title" className="font-display text-2xl text-white sm:text-3xl">{t("home.customer.title")}</h1>
+          <p className="text-sm text-[#dee7ff]">{t("home.customer.subtitle")}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-3 py-0.5 text-sm font-bold">
+              <House className="size-4" aria-hidden />
+              {t("role.customer.badge")}
+            </span>
+            {user.is_demo && <StatusBadge tone="warning">{t("demo.accountBadge")}</StatusBadge>}
+          </div>
+          <p className="flex flex-wrap items-center gap-1.5 text-sm text-[#dee7ff]">
+            <span>{t("home.signedInAs")}</span>
+            <Ltr>{user.phone_number_masked}</Ltr>
+          </p>
+          <ButtonLink to={PATHS.newJob} variant="gold" icon={<MessageSquarePlus className="size-5" aria-hidden />}>
+            {t("jobs.describe.cta")}
           </ButtonLink>
         </div>
       </section>
 
-      <section aria-labelledby="next-heading" className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
-        <h2 id="next-heading" className="text-lg font-bold">{t("home.nextHeading")}</h2>
-        <ul className="space-y-2">
-          {(["home.customer.next.recommend", "home.customer.next.chat"] as const).map((key) => (
-            <li key={key} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line px-3 py-2">
-              <span>{t(key)}</span>
-              <StatusBadge tone="neutral">{t("common.notAvailableYet")}</StatusBadge>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <AccountNotices />
 
-      <Link to={PATHS.catalog} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
-        <List className="size-5" aria-hidden />
-        {t("landing.catalogLink")}
-      </Link>
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.75fr)_minmax(17rem,1fr)]">
+        <div className="space-y-5">
+          {data.state.status !== "loading" && <CustomerNextStep jobs={jobs} />}
+          <Card id="requests" title={t("jobs.list.heading")} icon={<ClipboardList className="size-5" aria-hidden />}
+            action={<Link to={PATHS.newJob} className="inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-primary hover:underline">
+              <MessageSquarePlus className="size-4" aria-hidden />{t("nav.newRequest")}</Link>}>
+            {data.state.status === "loading" && <PageLoader />}
+            {data.state.status === "error" && <LoadError error={data.state.error} onRetry={data.retry} />}
+            {data.state.status === "ready" &&
+              (data.state.data[0].results.length === 0 ? (
+                <p className="text-muted">{t("jobs.list.empty")}</p>
+              ) : (
+                <ul className="space-y-2">
+                  {data.state.data[0].results.map((job) => (
+                    <RequestCard key={job.id} job={job} catalog={data.state.status === "ready" ? data.state.data[1] : { trades: [], services: [], areas: [] }} />
+                  ))}
+                </ul>
+              ))}
+          </Card>
+          <BookingList />
+        </div>
+
+        <div className="space-y-5">
+          <Card id="phone" title={t("home.phoneStatus")} icon={<Phone className="size-5" aria-hidden />}>
+            <PhoneConfirmationBadge confirmation={user.phone_confirmation} />
+            <div>
+              <ButtonLink to={PATHS.phone} variant="secondary" icon={<ShieldCheck className="size-5" aria-hidden />}>
+                {t("home.managePhone")}
+              </ButtonLink>
+            </div>
+          </Card>
+          <Card title={t("nav.reports")} icon={<Flag className="size-5" aria-hidden />}>
+            <p className="text-sm text-muted">{t("home.reportsNote")}</p>
+            <ButtonLink to="/reports" variant="secondary" icon={<Flag className="size-5" aria-hidden />}>{t("home.openReports")}</ButtonLink>
+          </Card>
+          <Link to={PATHS.catalog} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
+            <List className="size-5" aria-hidden />
+            {t("landing.catalogLink")}
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }

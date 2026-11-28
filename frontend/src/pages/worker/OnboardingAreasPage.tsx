@@ -1,4 +1,4 @@
-import { ArrowLeft, Building2, MapPin, Save } from "lucide-react";
+import { ArrowLeft, Building2, MapPin, Save, Volume2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 
@@ -124,10 +124,15 @@ export function OnboardingAreasPage() {
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-6">
-      <StepHeader step={3} title={t("onboarding.areas.title")} />
+      <StepHeader step={3} flow="worker" title={t("onboarding.areas.title")} />
       <InstructionAudio id="onboarding_areas" />
       <p className="text-muted">{t("onboarding.areas.explain")}</p>
-      <VoiceAnswer kind="onboarding_areas" onSuggest={applyVoice} describe={areaName} />
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      {/* Beside the manual choices on desktop; above them on phones. */}
+      <div className="lg:sticky lg:top-24 lg:order-last">
+        <VoiceAnswer kind="onboarding_areas" onSuggest={applyVoice} describe={areaName} />
+      </div>
+      <div className="card min-w-0 space-y-6 p-4 sm:p-5">
       {formError !== null && <Alert tone="danger">{describeError(formError, t)}</Alert>}
 
       <IconTileGroup label={t("onboarding.areas.cityLabel")} mode="single" options={cityOptions} value={city} onChange={changeCity} errors={errors.city} />
@@ -148,8 +153,12 @@ export function OnboardingAreasPage() {
         </fieldset>
       )}
 
-      <section aria-labelledby="listen-heading" className="space-y-2">
-        <h2 id="listen-heading" className="font-bold">{t("onboarding.listen.heading")}</h2>
+      <section aria-labelledby="listen-heading" className="space-y-2 rounded-xl bg-primary-soft/60 p-3">
+        <h2 id="listen-heading" className="flex items-center gap-2 font-bold text-primary">
+          <Volume2 className="size-5" aria-hidden />
+          {t("onboarding.listen.heading")}
+        </h2>
+        <p className="text-sm text-muted">{t("onboarding.listen.note")}</p>
         <ReadAloud text={choicesSpeech(dashboard.profile, selectedCity ?? null, areas, jobCatalog, language, t)} language={language} />
       </section>
 
@@ -160,6 +169,8 @@ export function OnboardingAreasPage() {
         <ButtonLink to={PATHS.workerWork} variant="secondary" fullWidth icon={<ArrowLeft className="size-5 rtl:-scale-x-100" aria-hidden />}>
           {t("common.back")}
         </ButtonLink>
+      </div>
+      </div>
       </div>
     </form>
   );

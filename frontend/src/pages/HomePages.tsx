@@ -7,7 +7,7 @@ export function AccountHomePage() {
   const { t } = useI18n();
   return (
     <div className="space-y-4">
-      <h1 className="text-3xl font-bold text-primary">{t("home.noRole.title")}</h1>
+      <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("home.noRole.title")}</h1>
       <p>{t("home.noRole.body")}</p>
       {/* Full page load: /admin/ is served by Django, not the SPA. */}
       <a href="/admin/" className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">

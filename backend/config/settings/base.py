@@ -133,8 +133,15 @@ GROQ_INTERPRETATION_MODEL = env_str("GROQ_INTERPRETATION_MODEL", GROQ_MODEL)
 GROQ_AGREEMENT_MODEL = env_str("GROQ_AGREEMENT_MODEL", GROQ_MODEL)
 # gpt-oss reasoning effort: low | medium | high. Reasoning tokens count towards the completion budget.
 GROQ_INTERPRETATION_REASONING_EFFORT = env_str("GROQ_INTERPRETATION_REASONING_EFFORT", "low")
-GROQ_AGREEMENT_REASONING_EFFORT = env_str("GROQ_AGREEMENT_REASONING_EFFORT", "medium")
-GROQ_MAX_COMPLETION_TOKENS = env_int("GROQ_MAX_COMPLETION_TOKENS", 6000, minimum=1000)
+# Agreement check: "high" judged the pitch revision correctly in live runs; a schema rejection is retried at "medium".
+GROQ_AGREEMENT_REASONING_EFFORT = env_str("GROQ_AGREEMENT_REASONING_EFFORT", "high")
+# Includes reasoning tokens. Live: an agreement check used ~970 (medium effort). Groq's free tier counts the requested
+# maximum against its tokens-per-minute limit (8000), so a large value causes 429s on back-to-back calls.
+GROQ_MAX_COMPLETION_TOKENS = env_int("GROQ_MAX_COMPLETION_TOKENS", 2500, minimum=1000)
+# Agreement check with high effort used ~1,450 completion tokens live.
+GROQ_AGREEMENT_MAX_COMPLETION_TOKENS = env_int("GROQ_AGREEMENT_MAX_COMPLETION_TOKENS", 3500, minimum=1000)
+# Low temperature keeps suggestions and findings steady between identical inputs.
+GROQ_TEMPERATURE = float(env_str("GROQ_TEMPERATURE", "0.2") or "0.2")
 
 # Agreement-gap check (M7, GAP-01): fixture (demo only) | groq | gemini | unconfigured.
 AGREEMENT_CHECK_PROVIDER = env_choice("AGREEMENT_CHECK_PROVIDER", {"fixture", "groq", "gemini", "unconfigured"})

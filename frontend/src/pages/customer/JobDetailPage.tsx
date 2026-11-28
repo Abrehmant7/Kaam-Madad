@@ -30,7 +30,7 @@ export function JobDetailPage() {
   return (
     <div className="space-y-5">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold text-primary">{t("jobs.detail.title")}</h1>
+        <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("jobs.detail.title")}</h1>
         <StatusBadge tone={confirmed ? "success" : "neutral"}>{confirmed ? t("jobs.status.confirmed") : t("jobs.status.draft")}</StatusBadge>
       </div>
 

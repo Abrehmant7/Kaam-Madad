@@ -31,7 +31,7 @@ export function UrduDescriptionEditor({ urdu, text, approved, onText, onApproved
   const status = approved && text.trim() ? "approved" : text !== urdu.text || urdu.status === "approved" ? "suggested" : urdu.status;
   const language = languageName(urdu.description_language, t);
   return (
-    <section aria-labelledby="urdu-heading" className="space-y-3 rounded-2xl border-2 border-primary/40 bg-white p-4">
+    <section aria-labelledby="urdu-heading" className="space-y-3 card-action p-4">
       <h2 id="urdu-heading" className="flex flex-wrap items-center gap-2 font-bold">
         <Languages className="size-5" aria-hidden />
         {t("jobs.urdu.heading")}

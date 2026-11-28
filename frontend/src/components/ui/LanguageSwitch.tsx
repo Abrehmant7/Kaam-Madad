@@ -9,7 +9,7 @@ import { type Language, LANGUAGE_META } from "../../i18n/types";
  * in its own script (e.g. "English" while in Urdu), so a reader of either
  * language can find it.
  */
-export function LanguageSwitch() {
+export function LanguageSwitch({ onDark = false }: { onDark?: boolean }) {
   const { language, t } = useI18n();
   const switchLanguage = useLanguageSwitcher();
   const target: Language = language === "ur" ? "en" : "ur";
@@ -20,7 +20,9 @@ export function LanguageSwitch() {
       type="button"
       onClick={() => void switchLanguage(target)}
       aria-label={t("nav.changeLanguage", { language: targetName })}
-      className="flex min-h-11 items-center gap-1.5 rounded-lg border border-white/40 px-3 text-sm font-bold hover:bg-white/10"
+      className={`flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-bold ${
+        onDark ? "border border-white/40 text-white hover:bg-white/10" : "border border-field bg-white text-primary hover:bg-primary-soft"
+      }`}
     >
       <Languages className="size-5" aria-hidden />
       <span lang={target} dir={LANGUAGE_META[target].dir}>

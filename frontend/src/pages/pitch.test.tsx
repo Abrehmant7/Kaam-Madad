@@ -27,7 +27,7 @@ const interpretation = (kind: string, fields: Record<string, unknown>, draft: Re
 async function uploadVoice() {
   const summary = screen.getByText(en["voiceAnswer.open"]);
   await userEvent.click(summary);
-  const input = summary.closest("details")!.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const input = summary.closest("section")!.querySelector<HTMLInputElement>('input[type="file"]')!;
   await userEvent.upload(input, new File([new Uint8Array(2048)], "answer.wav", { type: "audio/wav" }));
   expect(await screen.findByText(en["voice.yourFile"], {}, { timeout: 5000 })).toBeInTheDocument();
   const fill = screen.getByRole("button", { name: en["voiceAnswer.fill"] });

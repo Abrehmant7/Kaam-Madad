@@ -32,7 +32,7 @@ export function ReportsPage() {
   const reports = data.state.data.results;
   return (
     <div className="space-y-5">
-      <h1 className="flex items-center gap-2 text-3xl font-bold text-primary"><FileWarning className="size-7" aria-hidden />{t("report.mine")}</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-ink sm:text-3xl"><FileWarning className="size-7" aria-hidden />{t("report.mine")}</h1>
       <p className="text-sm text-muted">{t("report.mineNote")}</p>
       {reports.length === 0 ? (
         <p className="text-muted">{t("report.none")}</p>
@@ -111,7 +111,7 @@ export function ReportDetailPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-3xl font-bold text-primary">{t("report.title")}</h1>
+      <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("report.title")}</h1>
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone={REPORT_TONE[report.status]}>{t(`report.status.${report.status}`)}</StatusBadge>
         <span className="font-bold">{t(`report.category.${report.category}`)}</span>

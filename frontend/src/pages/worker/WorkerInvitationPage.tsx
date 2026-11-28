@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, CalendarCheck, MessagesSquare } from "lucide-react";
+import { ArrowLeft, Ban, CalendarCheck, Inbox, MessagesSquare } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 
@@ -7,6 +7,7 @@ import { PATHS } from "../../auth/paths";
 import { Alert } from "../../components/ui/Alert";
 import { Button, ButtonLink } from "../../components/ui/Button";
 import { IconTileGroup } from "../../components/ui/IconTile";
+import { PageHeader } from "../../components/ui/PageHeader";
 import { PageLoader } from "../../components/ui/PageLoader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { SharedJob, sharedSpeech } from "../../features/invitations/SharedJob";
@@ -46,30 +47,32 @@ export function WorkerInvitationPage() {
   const tone = invitation.status === "active" ? "info" : "neutral";
   return (
     <div className="space-y-5">
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold text-primary">{t("inv.title")}</h1>
+      <PageHeader icon={<Inbox className="size-6" aria-hidden />} title={t("inv.title")}>
         <StatusBadge tone={tone}>{t(`inv.status.${invitation.status}`)}</StatusBadge>
-      </div>
+      </PageHeader>
       {invitation.status === "active" && <Alert tone="info">{t("inv.activeNote")}</Alert>}
       {invitation.status === "withdrawn" && <Alert tone="warning">{t("inv.withdrawnNote")}</Alert>}
       {invitation.status === "declined" && <Alert tone="info" title={t("inv.declinedNote")}>{invitation.decline_reason ? t(`inv.reason.${invitation.decline_reason}`) : null}</Alert>}
 
-      <SharedJob job={invitation.job} catalog={catalog} />
-      <ReadAloud text={sharedSpeech(invitation.job, catalog, language, t)} language={language} />
-      <p className="text-sm text-muted">{t("inv.privacyNote")}</p>
-      {invitation.booking && (
-        <ButtonLink to={`/bookings/${invitation.booking.id}`} fullWidth icon={<CalendarCheck className="size-5" aria-hidden />}>
-          {t("booking.open")} · {t(`booking.status.${invitation.booking.status}`)}
+      {/* Task, area, time and Listen together, then the next action. */}
+      <SharedJob job={invitation.job} catalog={catalog}
+        listen={<ReadAloud text={sharedSpeech(invitation.job, catalog, language, t)} language={language} showText={false} />} />
+      <div className="grid gap-2">
+        {invitation.booking && (
+          <ButtonLink to={`/bookings/${invitation.booking.id}`} fullWidth icon={<CalendarCheck className="size-5" aria-hidden />}>
+            {t("booking.open")} · {t(`booking.status.${invitation.booking.status}`)}
+          </ButtonLink>
+        )}
+        <ButtonLink to={`/conversations/${invitation.id}`} variant={invitation.status === "active" && !invitation.booking ? "primary" : "secondary"} fullWidth
+          icon={<MessagesSquare className="size-5" aria-hidden />}>
+          {invitation.status === "active" ? t("conv.openWorker") : t("conv.view")}
         </ButtonLink>
-      )}
-      <ButtonLink to={`/conversations/${invitation.id}`} variant={invitation.status === "active" ? "primary" : "secondary"} fullWidth
-        icon={<MessagesSquare className="size-5" aria-hidden />}>
-        {invitation.status === "active" ? t("conv.openWorker") : t("conv.view")}
-      </ButtonLink>
+      </div>
+      <p className="text-sm text-muted">{t("inv.privacyNote")}</p>
 
       {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}
       {invitation.status === "active" && !invitation.booking && (
-        <section aria-labelledby="decline-heading" className="space-y-3 rounded-2xl border border-line bg-white p-4">
+        <section aria-labelledby="decline-heading" className="space-y-3 card p-4">
           <h2 id="decline-heading" className="font-bold">{t("inv.decline.heading")}</h2>
           <IconTileGroup
             label={t("inv.decline.reasonLabel")}

@@ -103,19 +103,29 @@ export function DescribeJobPage() {
   }));
 
   return (
-    <div className="space-y-5">
-      <StepHeader step={1} title={t("jobs.describe.title")} />
+    <div className="card space-y-5 p-4 sm:p-6">
+      <StepHeader step={1} flow="request" title={t("jobs.describe.title")} />
       <p>{t("jobs.describe.intro")}</p>
 
       <IconTileGroup label={t("jobs.describe.languageLabel")} mode="single" options={languageOptions} value={hint} onChange={(next) => !locked && setHint(next)} />
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button variant={mode === "voice" ? "primary" : "secondary"} disabled={locked} icon={<Mic className="size-5" aria-hidden />} aria-pressed={mode === "voice"} onClick={() => setMode("voice")}>
-          {t("jobs.describe.speak")}
-        </Button>
-        <Button variant={mode === "text" ? "primary" : "secondary"} disabled={locked} icon={<Keyboard className="size-5" aria-hidden />} aria-pressed={mode === "text"} onClick={() => setMode("text")}>
-          {t("jobs.describe.type")}
-        </Button>
+      {/* Speak and Type are equal choices; switching keeps what was recorded or typed. */}
+      <div className="grid grid-cols-2 gap-3" role="group" aria-label={t("jobs.describe.howLabel")}>
+        {([
+          ["voice", t("jobs.describe.speak"), t("jobs.describe.speakHint"), <Mic key="m" className="size-7" aria-hidden />],
+          ["text", t("jobs.describe.type"), t("jobs.describe.typeHint"), <Keyboard key="k" className="size-7" aria-hidden />],
+        ] as const).map(([value, title, hint, icon]) => (
+          <button key={value} type="button" disabled={locked} aria-pressed={mode === value}
+            aria-labelledby={`mode-${value}-title`} aria-describedby={`mode-${value}-hint`}
+            onClick={() => setMode(value)}
+            className={`flex min-h-28 flex-col items-center justify-center gap-1.5 rounded-2xl border-2 p-3 text-center transition-colors disabled:opacity-60 ${
+              mode === value ? "border-primary bg-primary-soft text-primary" : "border-line bg-white hover:border-primary/50"
+            }`}>
+            {icon}
+            <span id={`mode-${value}-title`} className="text-lg font-bold">{title}</span>
+            <span id={`mode-${value}-hint`} className="text-xs text-muted sm:text-sm">{hint}</span>
+          </button>
+        ))}
       </div>
 
       {mode === "voice" ? (

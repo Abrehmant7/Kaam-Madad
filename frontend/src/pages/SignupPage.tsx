@@ -76,11 +76,11 @@ export function SignupPage() {
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-5">
+    <form onSubmit={(event) => void handleSubmit(event)} noValidate className="card mx-auto max-w-lg space-y-5 p-5 sm:p-7">
       {role[0] === "worker" ? (
-        <StepHeader step={1} title={t("signup.title")} />
+        <StepHeader step={1} flow="worker" title={t("signup.title")} />
       ) : (
-        <h1 className="text-3xl font-bold text-primary">{t("signup.title")}</h1>
+        <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("signup.title")}</h1>
       )}
 
       {formError !== null && <Alert tone="danger">{describeError(formError, t)}</Alert>}

@@ -56,7 +56,7 @@ export function JobSummary({ job, catalog }: { job: JobRequest; catalog: JobCata
 
   return (
     <div className="space-y-4">
-      <dl className="space-y-3 rounded-2xl border border-line bg-white p-4">
+      <dl className="space-y-3 card p-4">
         <Row title={t("jobs.summary.task")}>
           {label.trade(d.trade) || "—"}
           {d.services.length > 0 && `: ${d.services.map(label.service).join(separator)}`}
@@ -128,7 +128,7 @@ export function OriginalInput({ job }: { job: JobRequest }) {
   const { t } = useI18n();
   if (!job.source.original_text) return null;
   return (
-    <section aria-labelledby="original-heading" className="space-y-2 rounded-2xl border border-line bg-surface p-4">
+    <section aria-labelledby="original-heading" className="space-y-2 card p-4">
       <h3 id="original-heading" className="flex flex-wrap items-center gap-2 font-bold">
         {t("jobs.original.heading")}
         <StatusBadge tone="neutral">{job.source.kind === "voice" ? t("jobs.original.voice") : t("jobs.original.typed")}</StatusBadge>

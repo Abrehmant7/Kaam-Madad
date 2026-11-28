@@ -32,7 +32,7 @@ export function SafetyPanel({ target, block, onChanged }: { target: Target; bloc
   }
 
   return (
-    <section aria-labelledby="safety-heading" className="space-y-3 rounded-2xl border border-line bg-surface p-4">
+    <section aria-labelledby="safety-heading" className="space-y-3 card p-4">
       <h2 id="safety-heading" className="flex items-center gap-2 font-bold">
         <ShieldCheck className="size-5" aria-hidden />
         {t("safety.title")}

@@ -72,7 +72,7 @@ export function AcceptQuote({ invitationId, quote, onStale }: { invitationId: st
   }
 
   return (
-    <section aria-labelledby="accept-heading" className="space-y-3 rounded-2xl border-2 border-primary bg-white p-4">
+    <section aria-labelledby="accept-heading" className="space-y-3 card-action p-4">
       <h3 id="accept-heading" className="text-lg font-bold">{t("accept.title", { version: quote.version ?? "" })}</h3>
       <dl className="space-y-2">
         <div>

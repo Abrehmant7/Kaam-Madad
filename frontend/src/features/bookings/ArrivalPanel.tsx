@@ -23,7 +23,7 @@ export function ArrivalPanel({ booking, act, busy }: { booking: bookingsApi.Book
   if (booking.status === "confirmed") {
     if (booking.role === "worker") {
       return (
-        <section className="space-y-2 rounded-2xl border border-line bg-white p-4">
+        <section className="space-y-2 card p-4">
           <h2 className="text-lg font-bold">{t("arrival.workerTitle")}</h2>
           <p className="text-sm">{t("arrival.workerIntro")}</p>
           <Button fullWidth loading={busy} loadingLabel={t("onboarding.saving")} icon={<MapPinCheck className="size-5" aria-hidden />}
@@ -47,7 +47,7 @@ export function ArrivalPanel({ booking, act, busy }: { booking: bookingsApi.Book
       });
     }
     return (
-      <section aria-labelledby="code-heading" className="space-y-3 rounded-2xl border-2 border-primary bg-white p-4">
+      <section aria-labelledby="code-heading" className="space-y-3 card-action p-4">
         <h2 id="code-heading" className="flex items-center gap-2 text-lg font-bold">
           <KeyRound className="size-5" aria-hidden />
           {t("arrival.codeTitle")}
@@ -91,7 +91,7 @@ export function ArrivalPanel({ booking, act, busy }: { booking: bookingsApi.Book
     ? codeFailure.details.attempts_remaining : state?.attempts_remaining;
   const fieldErrors = fieldErrorCodes(codeFailure).code ?? [];
   return (
-    <section aria-labelledby="start-heading" className="space-y-3 rounded-2xl border-2 border-primary bg-white p-4">
+    <section aria-labelledby="start-heading" className="space-y-3 card-action p-4">
       <h2 id="start-heading" className="text-lg font-bold">{t("arrival.startTitle")}</h2>
       <p>{t("arrival.startIntro")}</p>
       {!state?.active && (

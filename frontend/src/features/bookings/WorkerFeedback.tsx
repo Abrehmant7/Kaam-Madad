@@ -18,7 +18,7 @@ export function WorkerFeedback() {
   const label = labeller(catalog, language);
 
   return (
-    <section aria-labelledby="feedback-heading" className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
+    <section aria-labelledby="feedback-heading" className="space-y-3 card p-4">
       <h2 id="feedback-heading" className="flex items-center gap-2 text-lg font-bold">
         <Award className="size-6 text-primary" aria-hidden />
         {t("feedback.heading")}

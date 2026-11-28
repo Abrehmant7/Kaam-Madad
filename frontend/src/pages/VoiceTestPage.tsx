@@ -166,7 +166,7 @@ export function VoiceTestPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold text-primary">{t("voice.title")}</h1>
+        <h1 className="text-2xl font-bold text-ink sm:text-3xl">{t("voice.title")}</h1>
         <p className="text-muted">{t("voice.intro")}</p>
       </div>
 
@@ -199,7 +199,7 @@ export function VoiceTestPage() {
       />
 
       {/* Step 1: capture */}
-      <section className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
+      <section className="space-y-3 card p-4">
         <h2 className="text-lg font-bold">{t("voice.step1")}</h2>
         <Alert tone={sttSimulated ? "demo" : "info"}>
           {sttSimulated ? t("voice.privacySimulated") : t("voice.privacyCloud")}
@@ -276,7 +276,7 @@ export function VoiceTestPage() {
 
       {/* Step 2: original transcript (read-only) */}
       {transcription && (
-        <section className="space-y-2 rounded-2xl border border-line bg-white p-4 shadow-sm">
+        <section className="space-y-2 card p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold">{t("voice.step2")}</h2>
             <SimulatedBadge show={transcription.simulated} />
@@ -290,7 +290,7 @@ export function VoiceTestPage() {
 
       {/* Step 3: review and correct */}
       {interpretation && (
-        <section className="space-y-4 rounded-2xl border border-line bg-white p-4 shadow-sm">
+        <section className="space-y-4 card p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold">{t("voice.step3")}</h2>
             <SimulatedBadge show={interpretation.simulated} />

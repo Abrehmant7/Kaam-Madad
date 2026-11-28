@@ -254,10 +254,36 @@ class GroqAgreementTests(NoSleep):
         self.assertEqual((merged["ask"], merged["question"]), ("both", "Who buys the fans and wiring?"))
         self.assertEqual(len(merged["sources"]), 3)
         self.assertIn(MERGE_RULE, body["messages"][0]["content"])
-        self.assertEqual(body["reasoning_effort"], "medium")
+        self.assertEqual((body["reasoning_effort"], body["max_completion_tokens"], body["temperature"]), ("high", 3500, 0.2))
+        self.assertIn("'included' = the worker supplies the materials", body["messages"][0]["content"])
         payload = json.loads(body["messages"][1]["content"])
         self.assertEqual(payload["conversation_language"], "English")
         self.assertEqual(payload["quote"]["materials"], "customer")
+
+    def test_messages_are_numbered_and_the_quote_comes_after_them(self):
+        _, body = self.check("pitch_v2_materials_included", [])
+        payload = json.loads(body["messages"][1]["content"])
+        self.assertEqual([m["order"] for m in payload["messages"]], [1, 2, 3])
+        self.assertEqual(payload["quote"]["sent_after_message"], 3)
+        self.assertIn("LATEST", body["messages"][0]["content"])
+
+    def test_a_schema_rejection_at_high_effort_is_retried_once_at_medium(self):
+        sample, _ = SCENARIOS["pitch_v1_labour_only"]
+        efforts = []
+
+        def handler(request):
+            efforts.append(json.loads(request.content)["reasoning_effort"])
+            if len(efforts) == 1:
+                return httpx.Response(400, json={"error": {"message": "Failed to validate JSON", "type": "invalid_request_error",
+                                                           "code": "json_validate_failed"}})
+            return groq_reply({"findings": []})
+
+        result = GroqAgreementChecker(client=client_with(handler)).check(**sample)
+        self.assertEqual((efforts, result.findings), (["high", "medium"], []))
+        failing = GroqAgreementChecker(client=client_with(lambda r: httpx.Response(
+            400, json={"error": {"message": "x", "code": "json_validate_failed"}})))
+        with self.assertRaises(ProviderInvalidOutput):  # still invalid after the one retry: "could not run"
+            failing.check(**sample)
 
     def test_revised_quote_with_no_findings_passes(self):
         result, _ = self.check("pitch_v2_materials_included", [])

@@ -31,7 +31,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.providers import registry
-from apps.providers.errors import ProviderError
+from apps.providers.errors import ProviderError, ProviderLimitReached
 from apps.providers.text_to_speech import AUDIO_EXTENSIONS
 from apps.voice import drafts
 from apps.voice.audio import inspect_audio
@@ -150,7 +150,19 @@ class Command(BaseCommand):
                 continue
             started = time.monotonic()
             try:
-                result = checker.check(**sample)
+                for attempt in range(4):
+                    try:
+                        result = checker.check(**sample)
+                        break
+                    except ProviderLimitReached as exc:
+                        # Free-tier limits (tokens per minute) hit back-to-back scenarios: wait as the provider asks
+                        # (15–60 s) and try again, up to 3 times. The app itself shows "could not run" with a retry.
+                        if attempt == 3:
+                            raise
+                        wait = min(max(exc.retry_after_seconds or 20, 15), 60)
+                        self.stdout.write(f"[WAIT] agreement_check[{label}]: {exc.reason}; retrying in {wait}s")
+                        time.sleep(wait)
+                        started = time.monotonic()
             except ProviderError as exc:
                 self.report(f"agreement_check[{label}]", False, f"{checker.name}: {exc.code} ({exc.reason})")
                 continue
