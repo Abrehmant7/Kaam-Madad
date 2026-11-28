@@ -1,0 +1,59 @@
+# Secrets and local configuration, including nested/frontend .env files.
+.env*
+**/.env*
+**/*.local
+**/*.pem
+**/*.key
+.aws
+.ssh
+.npmrc
+**/.npmrc
+
+# Private/local uploads and generated static files.
+**/private_media
+**/media
+**/uploads
+**/staticfiles
+backend/*.mp3
+backend/*.wav
+**/*.sqlite3
+**/*.sqlite3-*
+
+# Python environments and caches.
+**/.venv
+**/venv
+**/env
+**/myvenv
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage*
+**/htmlcov
+
+# Node dependencies, generated builds, coverage and local reference archives.
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+**/npm-debug.log*
+frontend/Kaam-Madad-Frontend
+**/*.zip
+
+# Source control, agent/editor state and development-only files.
+.git
+.agents
+.codex
+.idea
+.vscode
+**/.DS_Store
+**/Thumbs.db
+**/desktop.ini
+**/*.log
+docs
+README.md
+docker-compose.yml
+index.py

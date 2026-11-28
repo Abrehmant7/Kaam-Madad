@@ -827,9 +827,86 @@ python manage.py check --deploy
 python manage.py runserver 127.0.0.1:8001 --noreload
 ```
 
-`runserver` is only for this local check; the real deployment server and HTTPS setup are part of M11.
+`runserver` is only for this local check; the Docker deployment below uses Gunicorn behind Render's HTTPS proxy.
 Production settings require a real `DJANGO_SECRET_KEY` (50+ random characters) and refuse to start without
 one.
+
+## 16. Render Free Docker deployment
+
+Use **one Free Docker Web Service and one Free Render PostgreSQL database**. Django serves the React
+build, API and admin from the same origin using the existing production settings and WhiteNoise.
+Sessions and the shared cache use PostgreSQL; no separate frontend service or Redis is needed.
+
+1. Create a **Free PostgreSQL** database. Choose the same region for the database and web service.
+   Keep its database name, username, password and **internal hostname** for the variables below.
+2. Create a **Free Web Service** from this repository with **Language: Docker**. Leave **Root Directory**
+   empty (repository root), set **Dockerfile Path** to `./Dockerfile` and **Docker Build Context Directory**
+   to `.`. Leave **Docker Command** empty so the image's startup command runs. No build/start command
+   override or pre-deploy command is needed. See [Docker on Render](https://render.com/docs/docker).
+3. Set **Health Check Path** to `/api/v1/health/ready/`. It returns 200 when PostgreSQL accepts a query
+   and 503 when it cannot. Production already exempts health probes from the HTTPS redirect.
+4. Add these variables in the web service's **Environment** settings before deploying. Replace every
+   placeholder with the values for this deployment:
+
+| Variable | Value |
+| --- | --- |
+| `DJANGO_SECRET_KEY` | A new random secret of at least 50 characters; keep it stable across deploys. Generate locally with `python -c "import secrets; print(secrets.token_urlsafe(64))"`. |
+| `DJANGO_ALLOWED_HOSTS` | The service's actual hostname, e.g. `kaam-madad.onrender.com` (no scheme or path). |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | The HTTPS origin, e.g. `https://kaam-madad.onrender.com`. |
+| `DJANGO_SECURE_PROXY_SSL_HEADER` | `true` (Render terminates TLS and forwards the request protocol). |
+| `DJANGO_NUM_PROXIES` | `1` (use the forwarded client IP for throttling behind Render's proxy). |
+| `POSTGRES_HOST` | The database's internal hostname from Render. |
+| `POSTGRES_PORT` | `5432` (override the project's local development default of 5434). |
+| `POSTGRES_DB` | The database name from Render. |
+| `POSTGRES_USER` | The database username from Render. |
+| `POSTGRES_PASSWORD` | The database password from Render. |
+| `POSTGRES_SSLMODE` | `require` ([internal connections support TLS](https://render.com/docs/postgresql-creating-connecting#internal-connections)). |
+
+The image sets `DJANGO_SETTINGS_MODULE=config.settings.production`. Keep HTTPS redirects and secure
+cookies enabled. Render supplies `PORT`; Gunicorn binds to `0.0.0.0:$PORT` (10000 locally by default).
+Database configuration uses the existing `POSTGRES_*` settings; `DATABASE_URL` is not consumed.
+
+Production defaults to `APP_DEPLOYMENT_MODE=live` with unconfigured external providers. For an explicitly
+labelled demo with simulated phone confirmation, also set `APP_DEPLOYMENT_MODE=demo` and
+`PHONE_VERIFICATION_PROVIDER=demo`. Configure any desired AI providers using the variables documented
+in `.env.example` and the pitch configuration above. Put API keys only in Render's runtime environment.
+Do not upload the local `.env` or put secrets into Docker build arguments, the Dockerfile or frontend
+`VITE_*` values. `.dockerignore` excludes environment files, private uploads and development artifacts.
+
+The multi-stage image runs `npm ci` and `npm run build` with Node 22, then copies the build into
+`/app/frontend/dist` in a Python 3.14 runtime. It includes Tesseract with English data for existing OCR.
+Each container start runs these commands from `/app/backend`, using runtime credentials:
+
+```sh
+python manage.py migrate --noinput
+python manage.py seed_catalog
+python manage.py collectstatic --noinput
+exec gunicorn config.wsgi:application --bind "0.0.0.0:$PORT" \
+  --workers 1 --threads 4 --timeout 120 --access-logfile - --error-logfile -
+```
+
+The startup command joins these steps with `&&`, so Gunicorn starts only after all three succeed.
+This initializes an empty database, including the cache table and booking extension, without a Render
+shell or pre-deploy command. Migrations and catalog seeding can run again on restart. The catalog seed
+does not create users or an admin account. One worker with four threads keeps the process count small.
+After deploying, check the startup logs, visit the homepage and a client route, and confirm
+`https://<your-host>/api/v1/health/ready/` returns `{"status":"ok","checks":{"database":"ok"}}`.
+
+To verify the image locally from the repository root:
+
+```sh
+docker build -t kaam-madad:render .
+```
+
+The build requires no application secrets or database connection. For a local container run, supply
+runtime environment variables for a reachable PostgreSQL database and the production settings above;
+use `DJANGO_SECURE_SSL_REDIRECT=false` only when testing over local plain HTTP.
+
+**Free-tier storage limits:** uploaded CNIC images, voice notes and job photos use the existing private
+local media storage and are lost on redeploy, restart or idle spin-down. Database rows can then refer to
+missing uploads. Free PostgreSQL expires after 30 days, and the web service sleeps after 15 idle minutes.
+This setup therefore suits temporary demos with disposable uploads. See
+[Render's Free instance limits](https://render.com/docs/free).
 
 ## Libraries, services and tools disclosure
 
