@@ -121,8 +121,9 @@ def recommend(summary: dict) -> list[Match]:
     return matches[:MAX_RESULTS]
 
 
-def worker_card(match: Match, previous_status: str | None = None) -> dict:
-    """Minimal public card: opaque ID, no name/phone/CNIC/registry data/addresses."""
+def worker_card(match: Match, previous_status: str | None = None, availability: dict | None = None) -> dict:
+    """Minimal public card: opaque ID, no name/phone/CNIC/registry data/addresses. ``availability`` is the
+    status and at most one timestamp from ``apps.bookings.availability`` — never other customers' bookings."""
     status = match.verification_status
     return {
         "worker_id": str(match.profile.id),
@@ -143,4 +144,5 @@ def worker_card(match: Match, previous_status: str | None = None) -> dict:
                                                                "average_rating": None},
         "reasons": match.reasons,
         "previous_invitation": previous_status,
+        "availability": availability or {"status": "available", "at": None},
     }

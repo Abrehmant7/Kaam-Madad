@@ -23,7 +23,73 @@ Requirements: [requirements.md](requirements.md) · Architecture: [architecture.
 | Pitch improvements (ElevenLabs + Groq, voice signup, demo verification, Urdu descriptions) | ✅ Implemented (27 Nov 2026). Groq live-checked 28 Nov; Scribe Urdu needs the `scribe_v2` fallback |
 | Theme and UX pass (Kaam Madad theme, navigation, next steps, quote summary) | ✅ Implemented (28 Nov 2026); live two-role rehearsal in the app |
 | UX redesign (full-width screens, job stages, quote screen, work progress, no demo branding) | ✅ Implemented (28 Nov 2026); tests and build pass; browser check below |
+| Worker dashboard, quote by voice, availability on recommendations | ✅ Implemented (28 Nov 2026); backend and frontend tests, build and browser walkthrough pass; live voice partly verified (below) |
 | M11 Integration and delivery | ⬜ Next |
+
+---
+
+## Worker dashboard, quote by voice, availability — implemented (28 Nov 2026)
+
+### Delivered
+
+- **Worker dashboard.**
+  - Main column: the next step, **Receive new job requests** (one toggle with loading and failure feedback, the same
+    card weight as invitations and bookings), Job invitations and My bookings.
+  - Side column: **Performance** and work history.
+  - The profile, eligibility, identity and phone cards are gone. One notice asks the worker to verify while identity
+    does not count in this deployment; it disappears once it counts. The "verify" next-step card is hidden so it
+    isn't said twice. Restricted and incomplete-profile notices stay.
+  - **My profile** is now `/worker/profile`, with Edit work and Edit areas plus links to the identity and phone
+    pages. Old `/worker#profile`, `#identity` and `#phone` links redirect.
+- **Performance** (`GET /workers/me/stats/`, owner-scoped, counted on the server).
+  - Visible reviews per star (5 → 1) with the real average and count, or "No reviews yet".
+  - Invitations received (every status) against customer-confirmed completed jobs.
+  - It reuses `apps.reviews.services.worker_stats`, plus one grouped query for the distribution. Exact counts sit
+    beside thin bars, in Urdu and English.
+- **Quote form.**
+  - The core terms stay visible: work, labour price (quantity only for a per-item price), materials and any
+    materials charge, and the appointment.
+  - Inspection-only, the visit fee and exclusions are under **More options**. It is closed for a new quote and opens
+    when the terms use them, for an inspection, or on an error there.
+- **Answer by voice** for the quote (upload purpose and interpretation kind `quote_terms`, migration
+  `voice.0007`).
+  - Flow: the existing recorder, then speech-to-text (ElevenLabs Scribe in the pitch configuration), then the
+    configured text interpreter with a quote schema.
+  - The model reports the day as said. The server resolves it in Asia/Karachi and leaves ambiguous values empty (a
+    weekday said on that weekday, a time without AM/PM, disagreeing day words). Reuse is per day.
+  - Empty fields are filled. Typed values are kept unless the worker taps **Use**. The transcript, every suggestion,
+    unclear fields and what is still needed are shown.
+  - Voice never saves or sends a quote. Failures change nothing that was typed.
+- **Availability on recommendations** (`apps.bookings.availability`, one batched query): `available`,
+  `partly_available` (free from a time inside the window), `busy` (next free time, following adjacent bookings), or
+  `uncertain` (a started job still open after its planned end).
+  - Only reserving bookings count; only the status and one time are exposed.
+  - Ranking and eligibility are unchanged, and busy workers stay listed.
+  - Acceptance keeps its locked overlap check (`schedule_conflict`).
+
+### Checks
+
+- **Backend:** `manage.py test` 432 tests OK, and `makemigrations --check` is clean.
+  - New: 9 quote-voice tests, 10 availability tests and 4 stats tests.
+  - Availability covers overlap, back-to-back, adjacent chains, cancelled/completed/closed, overdue, the one-query
+    batch, privacy of the card, and a stale "available" estimate refused with `schedule_conflict` at acceptance.
+- **Frontend:** vitest 19 files / 132 tests, and `npm run build` passes.
+  - New: dashboard notice shown and hidden, no duplicate verify card, pause/resume including a failed save, the
+    profile page and the old `#profile` redirect, Performance counts and the no-reviews state.
+  - Also new: More options collapse rules, voice prefill with keep/Use, voice failure fallback, and availability
+    lines.
+- **Browser** (Edge via Playwright, real Django + PostgreSQL, fixture AI): 35/35 checks pass.
+  - Worker in Urdu: notice, Performance, pause/resume, profile, demo verification removing the notice, and the quote
+    by voice prefill / keep / Use / fallback at 1440 and 360 px.
+  - Customer in English and Urdu: availability for partial, chained, back-to-back, cancelled and overdue bookings at
+    1440, 390 and 360 px, with no horizontal scroll.
+- **Live voice** (`check_ai_providers --only quote_terms`, Groq + ElevenLabs):
+  - Groq interpretation of the Urdu rehearsal sentence, with number words: **pass** (1200 / customer / Friday
+    4 Dec / 16:00–18:00, nothing else filled).
+  - Speech round trip (ElevenLabs `eleven_v3` reading the sentence, then Scribe): **failed** with
+    `transcript_wrong_script`. The synthetic Urdu voice came back in a non-Urdu script and the server refused it, as
+    designed; the worker keeps the manual form.
+  - A real human Urdu recording through Scribe was not tested.
 
 ---
 

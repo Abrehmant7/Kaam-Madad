@@ -15,6 +15,12 @@ onboarding_work (worker signup screen 2, answered by voice):
   {"trade", "service_mentions": [...], "main_speciality_code", "uncertain_fields": [...]}
 onboarding_areas (worker signup screen 3, answered by voice):
   {"city_code", "area_mentions": [{"phrase", "area_code", "negated"}], "uncertain_fields": [...]}
+quote_terms (the worker's quote, answered by voice; suggestions for the quote form only):
+  {"scope", "labour_amount_pkr", "labour_basis", "quantity", "materials", "materials_amount_pkr",
+   "appointment_phrase", "appointment_date", "appointment_weekday", "appointment_relative_day",
+   "start_time", "end_time", "uncertain_fields": [...]}
+  The model never computes calendar dates: it reports a weekday / relative day / explicit date as said, and the
+  server resolves it in Asia/Karachi (apps.voice.drafts).
 
 Unknown values are null. Model output can never trigger an action: callers only
 store it as an editable draft.
@@ -37,7 +43,7 @@ from .errors import ProviderNotConfigured
 from .gemini import GeminiClient
 from .groq import GroqClient
 
-KINDS = ("worker_introduction", "job_description", "onboarding_work", "onboarding_areas")
+KINDS = ("worker_introduction", "job_description", "onboarding_work", "onboarding_areas", "quote_terms")
 
 
 @dataclass(frozen=True)
@@ -119,6 +125,39 @@ RAW_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "required": ["city_code", "area_mentions", "uncertain_fields"],
     },
+    "quote_terms": {
+        "type": "object",
+        "properties": {
+            "scope": {**_NULLABLE_STRING, "description": "The work the price covers, in the worker's own words and "
+                      "language, only if they describe it; else null."},
+            "labour_amount_pkr": {**_NULLABLE_INT, "description": "Labour price in PKR only if clearly said (e.g. 'بارہ سو' "
+                                  "or 'twelve hundred' = 1200)."},
+            "labour_basis": {**_NULLABLE_STRING, "description": "'per_item' only if the price is per item/each (فی، har ek); "
+                             "'total' if it is clearly for the whole job; else null."},
+            "quantity": {**_NULLABLE_INT, "description": "Number of items, only if said."},
+            "materials": {**_NULLABLE_STRING, "description": "Who supplies the materials, only if said: 'included' (in the "
+                          "price), 'worker_extra' (worker brings them, charged separately), 'customer' (the customer "
+                          "provides/buys them), 'none' (no materials needed); else null."},
+            "materials_amount_pkr": {**_NULLABLE_INT, "description": "Separate materials charge in PKR, only if said."},
+            "appointment_phrase": {**_NULLABLE_STRING, "description": "The day/date words exactly as said, or null."},
+            "appointment_date": {**_NULLABLE_STRING, "description": "YYYY-MM-DD ONLY if an explicit calendar date with day "
+                                 "and month is said; never computed from a weekday or 'tomorrow'."},
+            "appointment_weekday": {**_NULLABLE_STRING, "description": "monday … sunday if a weekday is said (جمعہ = "
+                                    "friday, جمعرات = thursday, ہفتہ = saturday, اتوار = sunday, پیر = monday, منگل = "
+                                    "tuesday, بدھ = wednesday); else null."},
+            "appointment_relative_day": {**_NULLABLE_STRING, "description": "'today', 'tomorrow' or 'day_after_tomorrow' "
+                                         "if said (aaj, kal meaning tomorrow, parson); else null."},
+            "start_time": {**_NULLABLE_STRING, "description": "24-hour HH:MM, only if AM/PM is clear (شام/shaam evening, "
+                           "دوپہر afternoon, رات night = PM; صبح/subah morning = AM; or 'PM'/'AM'); else null."},
+            "end_time": {**_NULLABLE_STRING, "description": "24-hour HH:MM, same rule as start_time."},
+            "uncertain_fields": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": [
+            "scope", "labour_amount_pkr", "labour_basis", "quantity", "materials", "materials_amount_pkr",
+            "appointment_phrase", "appointment_date", "appointment_weekday", "appointment_relative_day",
+            "start_time", "end_time", "uncertain_fields",
+        ],
+    },
     "job_description": {
         "type": "object",
         "properties": {
@@ -155,7 +194,8 @@ INTERPRET_INSTRUCTION = (
     "- Preserve negation: if the speaker says they do NOT do or want something (e.g. 'motor rewinding "
     "nahi karta'), add it with negated=true. Never turn a negated item into a positive one.\n"
     "- Do not diagnose technical faults; describe what the customer said.\n"
-    "- Keep times exactly as said (e.g. 'kal shaam'); do not convert them to dates.\n"
+    "- Job descriptions: keep times exactly as said (e.g. 'kal shaam'); do not convert them to dates. Quotes: follow "
+    "the task's time rules and never compute a calendar date.\n"
     "- If a choice is ambiguous (e.g. two services could fit, or it is unclear which one is the main work), "
     "leave the code null and list the field in uncertain_fields. Never guess.\n"
     "- List in uncertain_fields every field you filled that is ambiguous."
@@ -172,6 +212,11 @@ TASKS = {
     "clearly name one service as their main or special work. Use services of the chosen trade only.",
     "onboarding_areas": "A WORKER answers the signup question 'Which areas will you travel to for work?'. Fill the "
     "city and every catalog area they mention; negated=true for areas they say they do NOT go to.",
+    "quote_terms": "A WORKER states a quote for a customer's job, in Urdu, English or both. Fill only terms that are "
+    "clearly said: labour price, whether it is per item, who supplies the materials (and a separate materials charge), "
+    "the work covered, and the appointment (weekday / today-tomorrow / explicit date, and start and end times). Leave "
+    "everything else null; never add a visit fee, discount or condition that was not said. If a time has no clear "
+    "AM/PM, or a value could mean two things, use null and list the field in uncertain_fields.",
 }
 
 
@@ -359,6 +404,83 @@ def _simulated_urdu(trade: str | None, mentions: list[dict], area_code: str | No
     return " ".join(parts) or None
 
 
+_QUOTE_SPLIT = re.compile(r"[۔،!?؟]|(?<!\d),|,(?!\d)|\.(?!\d)")
+_AMOUNT = re.compile(r"(?:(?:rs\.?|pkr|روپے)\s*(\d[\d,]*))|(?:(\d[\d,]*)\s*(?:روپے|rupees|rupay|rs\b|pkr))", re.IGNORECASE)
+_URDU_WEEKDAYS = {"جمعرات": "thursday", "جمعہ": "friday", "ہفتہ": "saturday", "ہفتے": "saturday", "اتوار": "sunday",
+                  "پیر": "monday", "منگل": "tuesday", "بدھ": "wednesday"}
+_WEEKDAY_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+_URDU_TENS = {**_URDU_NUMBERS, "گیارہ": 11, "بارہ": 12, "تیرہ": 13, "چودہ": 14, "سولہ": 16, "سترہ": 17, "اٹھارہ": 18,
+               "انیس": 19, "پچیس": 25, "تیس": 30, "چالیس": 40, "پچاس": 50}
+_SPOKEN_AMOUNT = re.compile("(" + "|".join(sorted(_URDU_TENS, key=len, reverse=True)) + r")\s+(سو|ہزار)")
+
+
+def _spoken_amounts(text: str) -> str:
+    """'بارہ سو' → '1200', 'دو ہزار' → '2000' (fixture only; the live models read number words themselves)."""
+    return _SPOKEN_AMOUNT.sub(lambda m: str(_URDU_TENS[m.group(1)] * (100 if m.group(2) == "سو" else 1000)), text)
+
+
+def _number(token: str) -> int | None:
+    token = token.strip()
+    if token.isdigit():
+        return int(token)
+    return _URDU_NUMBERS.get(token)
+
+
+def _quote_fixture(text: str) -> dict[str, Any]:
+    """Keyword rules for the quote answered by voice (fixture only). Anything not clearly said stays null."""
+    text = _spoken_amounts(text)
+    lowered = text.lower()
+    clauses = [c.strip() for c in _QUOTE_SPLIT.split(re.sub(r"(?i)\brs\.", "rs ", text)) if c.strip()]  # "Rs. 1,200"
+    raw: dict[str, Any] = {key: None for key in (
+        "scope", "labour_amount_pkr", "labour_basis", "quantity", "materials", "materials_amount_pkr",
+        "appointment_phrase", "appointment_date", "appointment_weekday", "appointment_relative_day", "start_time", "end_time")}
+    uncertain: list[str] = []
+    for clause in clauses:
+        low = clause.lower()
+        amounts = [int((a or b).replace(",", "")) for a, b in _AMOUNT.findall(clause)]
+        about_materials = "سامان" in clause or "material" in low
+        if amounts and about_materials:
+            raw["materials_amount_pkr"] = amounts[0]
+        elif amounts and raw["labour_amount_pkr"] is None:
+            raw["labour_amount_pkr"] = amounts[0]
+            if "فی" in clause or re.search(r"\b(per|each|har)\b", low):
+                raw["labour_basis"] = "per_item"
+        if about_materials:
+            if any(w in clause for w in ("گاہک", "آپ خود")) or re.search(r"\b(customer|you will (buy|provide)|aap)\b", low):
+                raw["materials"] = "customer"
+            elif "شامل" in clause or re.search(r"\binclud", low):
+                raw["materials"] = "included"
+            elif any(w in clause for w in ("میں لاؤں", "میں لے کر آؤں")) or re.search(r"\bi (will )?bring\b", low):
+                raw["materials"] = "worker_extra"
+    for word, day in _URDU_WEEKDAYS.items():
+        if word in text:
+            raw["appointment_weekday"], raw["appointment_phrase"] = day, word
+            break
+    else:
+        english = next((d for d in _WEEKDAY_NAMES if re.search(rf"\b{d}\b", lowered)), None)
+        if english:
+            raw["appointment_weekday"], raw["appointment_phrase"] = english, english
+        elif re.search(r"\btomorrow\b", lowered):
+            raw["appointment_relative_day"], raw["appointment_phrase"] = "tomorrow", "tomorrow"
+    numbers = r"(\d{1,2}|" + "|".join(_URDU_NUMBERS) + r")"
+    match = re.search(numbers + r"\s*(?:بجے\s*)?سے\s*" + numbers + r"\s*بجے", text) or re.search(
+        r"(?:from\s+)?(\d{1,2})(?::00)?\s*(?:am|pm)?\s*(?:to|till|until|-)\s*(\d{1,2})(?::00)?\s*(am|pm)", lowered)
+    if match:
+        start, end = _number(match.group(1)), _number(match.group(2))
+        pm = any(w in text for w in ("شام", "دوپہر", "رات")) or "pm" in lowered
+        am = "صبح" in text or re.search(r"\bam\b", lowered) is not None
+        if start and end and (pm != am):
+            shift = 12 if pm else 0
+            start, end = start % 12 + shift, end % 12 + shift
+            raw["start_time"], raw["end_time"] = f"{start:02d}:00", f"{end:02d}:00"
+        else:
+            uncertain += ["start_time", "end_time"]  # "4 se 6" without morning/evening: never guess
+    raw["uncertain_fields"] = uncertain
+    return raw
+
+
 class FixtureInterpretation(InterpretationProvider):
     """Keyword rules over the transcript. Labelled simulated; NOT real language understanding."""
 
@@ -383,6 +505,9 @@ class FixtureInterpretation(InterpretationProvider):
                         uncertain.append("primary_specialities")  # ambiguous: leave unselected
             raw = {"trade": trade, "service_mentions": mentions, "main_speciality_code": main, "uncertain_fields": uncertain}
             return InterpretationResult(raw=raw, provider=self.name, model=self.model, simulated=True)
+
+        if kind == "quote_terms":
+            return InterpretationResult(raw=_quote_fixture(text), provider=self.name, model=self.model, simulated=True)
 
         if kind == "onboarding_areas":
             city = next(

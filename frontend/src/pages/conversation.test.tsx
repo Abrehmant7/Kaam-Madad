@@ -350,3 +350,93 @@ describe("quotes and agreement gaps", () => {
     expect(screen.queryByText(en["conv.messages"])).not.toBeInTheDocument();
   });
 });
+
+describe("quote form: core terms first, More options, Answer by voice", () => {
+  const clip = { id: "clip-q", purpose: "quote_terms", source: "upload", mime_type: "audio/wav", size_bytes: 100, duration_seconds: 2, created_at: "x", content_url: "/api/v1/audio/clips/clip-q/content/" };
+  const URDU = "مزدوری کے 1200 روپے ہوں گے، سامان گاہک خود دیں گے، اور میں جمعہ کو شام 4 سے 6 بجے تک کام کر سکتا ہوں۔";
+  const transcription = { id: "tr-q", clip_id: "clip-q", text: URDU, language: "ur", language_hint: "en", no_speech: false, provider: "fixture", model: "fixture-stt-v1", simulated: true, reused: false };
+  const fields = { scope: null, labour_amount: 1200, labour_basis: null, quantity: null, materials: "customer", materials_amount: null, date: "2030-01-11", start_time: "16:00", end_time: "18:00" };
+  const interpretation = {
+    id: "int-q", kind: "quote_terms", language: "ur", source: { text: URDU, transcription_id: "tr-q" },
+    draft: { fields, missing: ["scope"], uncertain: [], unmatched_mentions: [], heard: {} }, corrections: {}, effective_fields: fields,
+    confirmed: null, provider: "fixture", model: "fixture-rules-v2", simulated: true, reused: false,
+  };
+  const materialsRadio = (name: string) =>
+    within(screen.getByRole("radiogroup", { name: en["quote.field.materials"] })).getByRole("radio", { name: new RegExp(name) });
+  const more = () => screen.getByText(en["quote.form.more"]).closest("details")!;
+  const upload = async () => {
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    await userEvent.upload(input, new File([new Uint8Array(2048)], "quote.wav", { type: "audio/wav" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: en["quoteVoice.fill"] })).toBeEnabled(), { timeout: 8000 });
+  };
+
+  it("a new quote keeps visit fee and exclusions under a closed More options; a quote that uses them opens it", async () => {
+    let current: unknown = null;
+    mockApi({ ...bootHandlers(worker()), ...catalog,
+      [`GET ${BASE}/`]: jsonResponse(header("worker")),
+      [`GET ${BASE}/quotes/`]: () => jsonResponse(current ? listing(current, true, []) : listing()) });
+    const first = renderApp("/conversations/inv-1/quote?edit=1", "en");
+    expect(await screen.findByLabelText(en["quote.field.scope"])).toBeInTheDocument();
+    expect(screen.getByLabelText(en["quote.form.labourAmount"])).toBeVisible();
+    expect(screen.getByRole("radiogroup", { name: en["quote.field.materials"] })).toBeInTheDocument();
+    expect(more().open).toBe(false);
+    expect(screen.queryByLabelText(en["quote.field.quantity"])).not.toBeInTheDocument(); // only for a per-item price
+    first.unmount();
+
+    current = quote({ findings: [], exclusions: "Wiring is not included" });
+    renderApp("/conversations/inv-1/quote?edit=1", "en");
+    await screen.findByLabelText(en["quote.field.scope"]);
+    expect(more().open).toBe(true);
+    expect(screen.getByLabelText(new RegExp(en["quote.field.exclusions"]))).toHaveValue("Wiring is not included");
+  }, 30000);
+
+  it("prefills only stated terms, keeps what the worker typed unless they choose the suggestion, and never sends", async () => {
+    const calls = mockApi({ ...bootHandlers(worker()), ...catalog,
+      [`GET ${BASE}/`]: jsonResponse(header("worker")),
+      [`GET ${BASE}/quotes/`]: jsonResponse(listing()),
+      "POST /api/v1/audio/clips/": jsonResponse(clip, 201),
+      "POST /api/v1/audio/transcribe/": jsonResponse(transcription),
+      "POST /api/v1/interpretations/": jsonResponse(interpretation, 201) });
+    renderApp("/conversations/inv-1/quote?edit=1", "en");
+    await userEvent.type(await screen.findByLabelText(en["quote.field.scope"]), "Install two ceiling fans");
+    await userEvent.type(screen.getByLabelText(en["quote.form.labourAmount"]), "900");
+    await upload();
+    await userEvent.click(screen.getByRole("button", { name: en["quoteVoice.fill"] }));
+
+    const suggestions = within(await screen.findByRole("status", { name: en["quoteVoice.suggestions"] }));
+    expect(suggestions.getByText(URDU)).toBeInTheDocument(); // the transcript to review
+    // Empty fields are filled …
+    expect(materialsRadio(en["quote.materials.customer"])).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText(en["jobs.field.date"])).toHaveValue("2030-01-11");
+    expect(screen.getByLabelText(en["jobs.field.startTime"])).toHaveValue("16:00");
+    expect(screen.getByLabelText(en["jobs.field.endTime"])).toHaveValue("18:00");
+    // … typed ones are kept until the worker chooses the suggestion; nothing unstated is touched.
+    expect(screen.getByLabelText(en["quote.field.scope"])).toHaveValue("Install two ceiling fans");
+    expect(screen.getByLabelText(en["quote.form.labourAmount"])).toHaveValue("900");
+    expect(suggestions.getByText(en["quoteVoice.kept"].replace("{value}", "PKR 900"))).toBeInTheDocument();
+    await userEvent.click(suggestions.getByRole("button", { name: en["quoteVoice.use"].replace("{value}", "PKR 1,200") }));
+    expect(screen.getByLabelText(en["quote.form.labourAmount"])).toHaveValue("1200");
+    expect(more().open).toBe(false); // visit fee and exclusions untouched
+    // Suggestions only: no draft or quote was saved or sent.
+    expect(calls.some((call) => call.path.includes("/quotes/draft"))).toBe(false);
+    expect(screen.getByRole("button", { name: en["quote.form.submit"] })).toBeEnabled();
+  }, 30000);
+
+  it("a provider failure changes nothing that was typed and keeps the form usable", async () => {
+    mockApi({ ...bootHandlers(worker()), ...catalog,
+      [`GET ${BASE}/`]: jsonResponse(header("worker")),
+      [`GET ${BASE}/quotes/`]: jsonResponse(listing()),
+      "POST /api/v1/audio/clips/": jsonResponse(clip, 201),
+      "POST /api/v1/audio/transcribe/": jsonResponse(errorEnvelope("ai_provider_unavailable", "r9", { capability: "speech_to_text", reason: "timeout" }), 502) });
+    renderApp("/conversations/inv-1/quote?edit=1", "en");
+    await userEvent.type(await screen.findByLabelText(en["quote.form.labourAmount"]), "700");
+    await upload();
+    await userEvent.click(screen.getByRole("button", { name: en["quoteVoice.fill"] }));
+    expect(await screen.findByText(en["quoteVoice.failed"])).toBeInTheDocument();
+    expect(screen.getByText(en["quoteVoice.keptTyped"])).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en["common.retry"] })).toBeInTheDocument();
+    expect(screen.getByLabelText(en["quote.form.labourAmount"])).toHaveValue("700");
+    await userEvent.click(materialsRadio(en["quote.materials.included"]));
+    expect(materialsRadio(en["quote.materials.included"])).toHaveAttribute("aria-checked", "true");
+  }, 30000);
+});

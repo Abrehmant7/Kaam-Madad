@@ -11,9 +11,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import date, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from django.utils import timezone
 
 from rest_framework.exceptions import ErrorDetail, ValidationError
 
@@ -51,12 +56,26 @@ FIELD_TYPES: dict[str, dict[str, str]] = {
         "city": "city",
         "service_areas": "areas",
     },
+    # The worker's quote answered by voice: suggestions for the quote form only (names match the form's terms).
+    # The date is resolved here, in Asia/Karachi, from what was said; the model never computes dates.
+    "quote_terms": {
+        "scope": "text:1000",
+        "labour_amount": "int:0:10000000",
+        "labour_basis": "choice:total,per_item",
+        "quantity": "int:1:999",
+        "materials": "choice:included,worker_extra,customer,none",
+        "materials_amount": "int:0:10000000",
+        "date": "date",
+        "start_time": "time",
+        "end_time": "time",
+    },
 }
 REQUIRED: dict[str, tuple[str, ...]] = {
     "worker_introduction": ("name", "trade"),
     "job_description": ("description", "trade", "area", "preferred_time_text"),
     "onboarding_work": (),
     "onboarding_areas": (),
+    "quote_terms": (),  # suggestions only; the quote form and the server's quote rules decide what is required
 }
 # (positive list, negated list) per kind
 SERVICE_LISTS = {
@@ -72,8 +91,14 @@ RAW_KEYS = {
     },
     "onboarding_work": {"trade", "service_mentions", "main_speciality_code", "uncertain_fields"},
     "onboarding_areas": {"city_code", "area_mentions", "uncertain_fields"},
+    "quote_terms": {
+        "scope", "labour_amount_pkr", "labour_basis", "quantity", "materials", "materials_amount_pkr",
+        "appointment_phrase", "appointment_date", "appointment_weekday", "appointment_relative_day",
+        "start_time", "end_time", "uncertain_fields",
+    },
 }
 LIST_KEYS = {"service_mentions", "area_mentions", "uncertain_fields"}
+INT_KEYS = {"years_experience", "budget_pkr", "labour_amount_pkr", "quantity", "materials_amount_pkr"}
 
 
 @dataclass(frozen=True)
@@ -105,6 +130,10 @@ class CatalogIndex:
 
 def catalog_context(kind: str) -> dict[str, Any]:
     """Reference data given to the provider (codes + bilingual labels; nothing private)."""
+    if kind == "quote_terms":
+        # No catalog codes: the answer is prices, a materials choice and a time. Dates are resolved by the server.
+        return {"currency": "PKR", "materials_choices": ["included", "worker_extra", "customer", "none"],
+                "labour_basis_choices": ["total", "per_item"]}
     if kind == "onboarding_areas":
         return {
             "cities": [{"code": c.code, "en": c.label_en, "ur": c.label_ur} for c in City.objects.filter(is_active=True)],
@@ -143,10 +172,10 @@ def validate_raw(kind: str, raw: Any) -> dict[str, Any]:
     missing = RAW_KEYS[kind] - raw.keys()
     if missing:
         raise ProviderInvalidOutput("draft_missing_keys")
-    for key in RAW_KEYS[kind] - LIST_KEYS - {"years_experience", "budget_pkr"}:
+    for key in RAW_KEYS[kind] - LIST_KEYS - INT_KEYS:
         if raw[key] is not None and not isinstance(raw[key], str):
             raise ProviderInvalidOutput(f"draft_bad_type:{key}")
-    for key in {"years_experience", "budget_pkr"} & RAW_KEYS[kind]:
+    for key in INT_KEYS & RAW_KEYS[kind]:
         if raw[key] is not None and not _is_int(raw[key]):
             raise ProviderInvalidOutput(f"draft_bad_type:{key}")
     for list_key, code_key in (("service_mentions", "service_code"), ("area_mentions", "area_code")):
@@ -224,9 +253,116 @@ def _build_areas_draft(raw: dict[str, Any], catalog: CatalogIndex) -> dict[str, 
     }
 
 
+KARACHI = ZoneInfo("Asia/Karachi")
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+RELATIVE_DAYS = {"today": 0, "tomorrow": 1, "day_after_tomorrow": 2}
+QUOTE_CORE = ("scope", "labour_amount", "materials", "date", "start_time", "end_time")
+MAX_DAYS_AHEAD = 90
+_TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def karachi_today() -> date:
+    return timezone.now().astimezone(KARACHI).date()
+
+
+def _resolve_date(raw: dict[str, Any], today: date) -> tuple[date | None, bool]:
+    """(date, unclear). Explicit date, weekday or today/tomorrow — only when they agree and are unambiguous."""
+    candidates: set[date] = set()
+    unclear = False
+    explicit = (raw.get("appointment_date") or "").strip()
+    if explicit:
+        try:
+            candidates.add(date.fromisoformat(explicit))
+        except ValueError:
+            unclear = True
+    weekday = (raw.get("appointment_weekday") or "").strip().lower()
+    if weekday:
+        if weekday not in WEEKDAYS:
+            unclear = True
+        else:
+            ahead = (WEEKDAYS.index(weekday) - today.weekday()) % 7
+            if ahead == 0:
+                unclear = True  # "Friday" said on a Friday: today or next week?
+            else:
+                candidates.add(today + timedelta(days=ahead))
+    relative = (raw.get("appointment_relative_day") or "").strip().lower()
+    if relative:
+        if relative not in RELATIVE_DAYS:
+            unclear = True
+        else:
+            candidates.add(today + timedelta(days=RELATIVE_DAYS[relative]))
+    if len(candidates) != 1:
+        return None, unclear or len(candidates) > 1
+    (resolved,) = candidates
+    if not today <= resolved <= today + timedelta(days=MAX_DAYS_AHEAD):
+        return None, True
+    return resolved, unclear
+
+
+def _build_quote_draft(raw: dict[str, Any], source_text: str) -> dict[str, Any]:
+    """Only what the worker clearly said; anything ambiguous stays empty and is listed in ``uncertain``."""
+    names = FIELD_TYPES["quote_terms"]
+    alias = {"labour_amount_pkr": "labour_amount", "materials_amount_pkr": "materials_amount",
+             "appointment_date": "date", "appointment_weekday": "date", "appointment_relative_day": "date"}
+    uncertain = {alias.get(name, name) for name in raw["uncertain_fields"]} & set(names)
+    heard: dict[str, str] = {}
+    fields: dict[str, Any] = {name: None for name in names}
+
+    scope = (raw.get("scope") or "").strip()
+    fields["scope"] = scope[:1000] or None
+    for raw_key, name, low, high in (("labour_amount_pkr", "labour_amount", 0, 10_000_000), ("quantity", "quantity", 1, 999),
+                                     ("materials_amount_pkr", "materials_amount", 0, 10_000_000)):
+        value = raw.get(raw_key)
+        if value is not None and not low <= value <= high:
+            value, _ = None, uncertain.add(name)
+        fields[name] = value
+    for name, allowed in (("labour_basis", {"total", "per_item"}), ("materials", {"included", "worker_extra", "customer", "none"})):
+        value = (raw.get(name) or "").strip() or None
+        if value is not None and value not in allowed:
+            heard[name], value = value[:80], None
+            uncertain.add(name)
+        fields[name] = value
+    if fields["materials_amount"] is not None and fields["materials"] != "worker_extra":
+        fields["materials_amount"] = None  # a materials charge applies only when the worker brings them at extra cost
+        uncertain.add("materials_amount")
+
+    resolved, unclear = _resolve_date(raw, karachi_today())
+    fields["date"] = resolved.isoformat() if resolved else None
+    if unclear or (resolved is None and (raw.get("appointment_phrase") or "").strip()):
+        uncertain.add("date")
+    phrase = (raw.get("appointment_phrase") or "").strip()
+    if phrase and resolved is None:
+        heard["date"] = phrase[:120]
+    times = {}
+    for name in ("start_time", "end_time"):
+        value = (raw.get(name) or "").strip() or None
+        if value is not None and not _TIME.match(value):
+            heard[name], value = value[:20], None
+            uncertain.add(name)
+        times[name] = value
+    if times["start_time"] and times["end_time"] and times["end_time"] <= times["start_time"]:
+        times = {"start_time": None, "end_time": None}  # e.g. "4 to 6" read as 16:00–06:00: never guess
+        uncertain.update({"start_time", "end_time"})
+    fields.update(times)
+
+    # missing: not said at all; uncertain: said, but not clear enough to fill in.
+    missing = [name for name in QUOTE_CORE if _empty(fields[name]) and name not in uncertain]
+    if fields["labour_basis"] == "per_item" and fields["quantity"] is None and "quantity" not in uncertain:
+        missing.append("quantity")
+    return {
+        "fields": fields,
+        "missing": missing,
+        "uncertain": sorted(uncertain),
+        "unmatched_mentions": [],
+        "heard": heard,
+    }
+
+
 def build_draft(kind: str, raw: dict[str, Any], source_text: str, catalog: CatalogIndex) -> dict[str, Any]:
     if kind == "onboarding_areas":
         return _build_areas_draft(raw, catalog)
+    if kind == "quote_terms":
+        return _build_quote_draft(raw, source_text)
     field_names = FIELD_TYPES[kind]
     uncertain = {name for name in raw["uncertain_fields"] if name in field_names}
     heard: dict[str, str] = {}
@@ -399,6 +535,27 @@ def _clean_value(field_type: str, value: Any, catalog: CatalogIndex) -> Any:
         if any(v not in catalog.services for v in value):
             raise ValueError("unknown_service")
         return list(dict.fromkeys(value))
+    if kind == "choice":
+        if value is None:
+            return None
+        if value not in args[0].split(","):
+            raise ValueError("invalid_choice")
+        return value
+    if kind == "date":
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("invalid")
+        try:
+            return date.fromisoformat(value).isoformat()
+        except ValueError:
+            raise ValueError("invalid") from None
+    if kind == "time":
+        if value is None:
+            return None
+        if not isinstance(value, str) or not _TIME.match(value):
+            raise ValueError("invalid")
+        return value
     raise ValueError("invalid")
 
 
@@ -422,5 +579,9 @@ def validate_for_confirmation(kind: str, fields: dict[str, Any]) -> None:
 
 
 def input_hash(kind: str, language: str, text: str, provider: str, model: str, catalog: CatalogIndex) -> str:
-    payload = json.dumps([SCHEMA_VERSION, kind, language, text, provider, model, catalog.fingerprint()], ensure_ascii=False)
+    # A quote's weekday ("Friday") resolves against today's date, so a draft is reused only on the same day.
+    parts = [SCHEMA_VERSION, kind, language, text, provider, model, catalog.fingerprint()]
+    if kind == "quote_terms":
+        parts.append(karachi_today().isoformat())
+    payload = json.dumps(parts, ensure_ascii=False)
     return hashlib.sha256(payload.encode()).hexdigest()

@@ -1,9 +1,8 @@
-import { BadgeCheck, CirclePause, CirclePlay, HardHat, IdCard, List, MapPin, Pencil, Phone, ShieldCheck, Wrench } from "lucide-react";
+import { CirclePause, CirclePlay, HardHat, List, ShieldAlert, UserRoundPen } from "lucide-react";
 import { type CSSProperties, useState } from "react";
-import { Link, Navigate } from "react-router";
+import { Link, Navigate, useLocation } from "react-router";
 
 import heroImage from "../../assets/hero-electrician.webp";
-import * as catalogApi from "../../api/catalog";
 import * as workersApi from "../../api/workers";
 import { useAuth } from "../../auth/context";
 import { PATHS } from "../../auth/paths";
@@ -12,98 +11,94 @@ import { Alert } from "../../components/ui/Alert";
 import { Button, ButtonLink } from "../../components/ui/Button";
 import { Card } from "../../components/ui/PageHeader";
 import { PageLoader } from "../../components/ui/PageLoader";
-import { StatusBadge, type BadgeTone } from "../../components/ui/StatusBadge";
 import { BookingList } from "../../features/bookings/BookingList";
-import { WorkerNextStep } from "../../features/dashboard/NextStep";
-import { AccountNotices } from "../../features/reports/AccountNotices";
 import { WorkerFeedback } from "../../features/bookings/WorkerFeedback";
+import { WorkerNextStep } from "../../features/dashboard/NextStep";
+import { WorkerPerformance } from "../../features/dashboard/WorkerPerformance";
 import { InvitationInbox } from "../../features/invitations/InvitationInbox";
-import { PhoneConfirmationBadge } from "../../features/phone/PhoneConfirmationStatus";
-import { label, LoadError, onboardingPath, useLoad } from "../../features/worker/shared";
+import { AccountNotices } from "../../features/reports/AccountNotices";
+import { LoadError, onboardingPath, useLoad } from "../../features/worker/shared";
 import { isTranslationKey, useI18n } from "../../i18n/context";
 import { describeError } from "../../i18n/errors";
 
-const IDENTITY_TONE: Record<workersApi.IdentityStatus, BadgeTone> = {
-  not_started: "neutral",
-  in_progress: "info",
-  no_match: "danger",
-  demo_approved: "neutral",
-  provider_verified: "success",
-  manually_reviewed: "success",
-  rejected: "danger",
-  expired: "danger",
-  suspended: "danger",
-};
+/** Old dashboard section links that moved to their own pages. */
+const MOVED: Record<string, string> = { "#profile": PATHS.workerProfile, "#identity": PATHS.workerVerify, "#phone": PATHS.phone };
+const IDENTITY_REASONS = new Set(["identity_not_started", "identity_not_verified", "identity_no_match", "identity_rejected",
+  "identity_expired", "identity_suspended", "demo_approval_not_accepted_here"]);
+
+/** Receive new job requests: the worker's own on/off choice, as a main card beside invitations and bookings. */
+function ReceivingCard({ accepting, onToggle }: { accepting: boolean; onToggle: () => Promise<void> }) {
+  const { t } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<unknown>(null);
+  async function toggle() {
+    setFailure(null);
+    setBusy(true);
+    try {
+      await onToggle();
+    } catch (error) {
+      setFailure(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const Icon = accepting ? CirclePlay : CirclePause;
+  return (
+    <Card id="accepting" title={t("worker.accepting.label")} icon={<Icon className="size-5" aria-hidden />}>
+      <p role="status" className={`flex items-center gap-2 text-lg font-bold ${accepting ? "text-success-strong" : "text-warning-strong"}`}>
+        <Icon className="size-6 shrink-0" aria-hidden />
+        {accepting ? t("worker.accepting.onLong") : t("worker.accepting.offLong")}
+      </p>
+      <p className="text-sm text-muted">{t("worker.accepting.help")}</p>
+      {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}
+      <Button variant={accepting ? "secondary" : "primary"} loading={busy} loadingLabel={t("onboarding.saving")}
+        icon={accepting ? <CirclePause className="size-5" aria-hidden /> : <CirclePlay className="size-5" aria-hidden />}
+        onClick={() => void toggle()}>
+        {accepting ? t("worker.accepting.turnOff") : t("worker.accepting.turnOn")}
+      </Button>
+    </Card>
+  );
+}
 
 /**
- * Worker dashboard (M4). Usable without identity verification. Profile completion, identity
- * status and the worker's own "accepting requests" choice are shown separately; the
- * eligibility card explains, from the server's check, why the worker can or cannot take jobs.
+ * Worker dashboard: the next step, receiving requests on/off, job invitations and bookings, with Performance and work
+ * history beside them. The profile is on /worker/profile; identity and phone verification keep their own pages. One
+ * compact notice appears only while something blocks taking jobs (identity that does not count here, an incomplete
+ * profile); a staff restriction has its own notice.
  */
 export function WorkerDashboardPage() {
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const { user } = useAuth();
-  const base = useLoad((signal) =>
-    Promise.all([workersApi.fetchWorker(signal), catalogApi.fetchAllServiceTags(signal), catalogApi.fetchTrades(signal), catalogApi.fetchAreas(signal)]),
-  );
-  const [toggleError, setToggleError] = useState<unknown>(null);
-  const [toggling, setToggling] = useState(false);
+  const { hash } = useLocation();
+  const base = useLoad((signal) => workersApi.fetchWorker(signal));
 
+  if (MOVED[hash]) return <Navigate to={MOVED[hash]} replace />;
   if (!user) return null;
   if (base.state.status === "loading") return <PageLoader />;
   if (base.state.status === "error") return <LoadError error={base.state.error} onRetry={base.retry} />;
-  const [dashboard, services, trades, areas] = base.state.data;
+  const dashboard = base.state.data;
   // Unfinished onboarding resumes at the right screen (after a refresh or a new login).
   if (!dashboard.onboarding.complete && dashboard.onboarding.next_step) {
     return <Navigate to={onboardingPath(dashboard.onboarding.next_step)} replace />;
   }
 
   const { profile, identity, eligibility } = dashboard;
-  const serviceLabel = (code: string) => {
-    const found = services.results.find((item) => item.code === code);
-    return found ? label(found.labels, language) : code;
-  };
-  const tradeItem = trades.results.find((item) => item.code === profile.trade);
-  const areaItems = areas.results.filter((area) => profile.service_areas.includes(area.code));
-  const cityItem = areas.results.find((area) => area.city.code === profile.city)?.city;
-  const verified = identity.counts_here;
-  const reasonText = (reason: string) => {
-    const key = `worker.eligibility.reason.${reason}`;
-    return isTranslationKey(key) ? t(key) : reason;
-  };
-
-  async function toggleAccepting() {
-    setToggleError(null);
-    setToggling(true);
-    try {
-      base.set([await workersApi.setAcceptingRequests(!profile.accepting_requests), services, trades, areas]);
-    } catch (error) {
-      setToggleError(error);
-    } finally {
-      setToggling(false);
-    }
-  }
-
-  const summaryRow = (title: string, values: string[]) => (
-    <div>
-      <dt className="text-sm text-muted">{title}</dt>
-      <dd className="font-bold">{values.length ? values.join(language === "ur" ? "، " : ", ") : "—"}</dd>
-    </div>
-  );
+  const reason = (code: string) => (isTranslationKey(`worker.eligibility.reason.${code}`) ? t(`worker.eligibility.reason.${code}` as never) : code);
+  const identityReason = eligibility.reasons.find((code) => IDENTITY_REASONS.has(code));
+  const needsIdentity = !identity.counts_here;
+  const profileIncomplete = eligibility.reasons.includes("profile_incomplete");
 
   return (
     <div className="space-y-5">
-      <section aria-labelledby="worker-title" className="hero on-dark flex min-h-[12rem] items-center px-5 py-6 sm:min-h-[14rem] sm:px-8"
+      <section aria-labelledby="worker-title" className="hero on-dark flex min-h-[11rem] items-center px-5 py-6 sm:min-h-[13rem] sm:px-8"
         style={{ "--hero-image": `url(${heroImage})` } as CSSProperties}>
         <div className="relative max-w-[68%] space-y-2 sm:max-w-[60%]">
           <h1 id="worker-title" className="font-display text-2xl text-white sm:text-3xl">{t("worker.dashboard.title")}</h1>
           <p className="text-sm text-[#dee7ff]">{t("worker.dashboard.subtitle")}</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-3 py-0.5 text-sm font-bold">
-              <HardHat className="size-4" aria-hidden />
-              {t("role.worker.badge")}
-            </span>
-          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-3 py-0.5 text-sm font-bold">
+            <HardHat className="size-4" aria-hidden />
+            {t("role.worker.badge")}
+          </span>
           <p className="flex flex-wrap items-center gap-1.5 text-sm text-[#dee7ff]">
             <span>{t("home.signedInAs")}</span>
             <Ltr>{user.phone_number_masked}</Ltr>
@@ -112,102 +107,40 @@ export function WorkerDashboardPage() {
       </section>
 
       <AccountNotices />
+      {needsIdentity && (
+        <Alert tone="warning" title={t("worker.verifyNotice.title")}>
+          <p>{identityReason ? reason(identityReason) : t("worker.verifyNotice.body")}</p>
+          {identity.status !== "suspended" && (
+            <ButtonLink to={PATHS.workerVerify} variant="ghost" className="min-h-11 px-0" icon={<ShieldAlert className="size-5" aria-hidden />}>
+              {identity.status === "in_progress" || identity.status === "no_match" ? t("worker.identity.continue") : t("worker.verifyNotice.action")}
+            </ButtonLink>
+          )}
+        </Alert>
+      )}
+      {profileIncomplete && (
+        <Alert tone="warning" title={t("worker.profileNotice.title")}>
+          <p>{reason("profile_incomplete")}</p>
+          <ButtonLink to={PATHS.workerProfile} variant="ghost" className="min-h-11 px-0" icon={<UserRoundPen className="size-5" aria-hidden />}>
+            {t("nav.profile")}
+          </ButtonLink>
+        </Alert>
+      )}
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.75fr)_minmax(17rem,1fr)]">
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <WorkerNextStep dashboard={dashboard} />
+          <ReceivingCard accepting={profile.accepting_requests}
+            onToggle={async () => base.set(await workersApi.setAcceptingRequests(!profile.accepting_requests))} />
           <InvitationInbox />
           <BookingList />
+        </div>
+        <div className="min-w-0 space-y-5">
+          <WorkerPerformance />
           <WorkerFeedback />
-        </div>
-        <div className="space-y-5">
-      <Card id="eligibility" title={t("worker.eligibility.heading")} icon={<BadgeCheck className="size-5" aria-hidden />}>
-        <StatusBadge tone={eligibility.can_take_jobs ? "success" : "neutral"}>
-          {eligibility.can_take_jobs ? t("worker.eligibility.yes") : t("worker.eligibility.no")}
-        </StatusBadge>
-        {eligibility.reasons.length > 0 && (
-          <ul className="list-inside list-disc space-y-1">
-            {eligibility.reasons.map((reason) => (
-              <li key={reason}>{reasonText(reason)}</li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card id="identity" title={t("worker.identity.heading")} icon={<IdCard className="size-5" aria-hidden />}>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge tone={IDENTITY_TONE[identity.status]}>{t(`worker.identity.status.${identity.status}`)}</StatusBadge>
-        </div>
-        {identity.masked_cnic && (
-          <p className="flex flex-wrap items-center gap-1.5 text-sm">
-            <span>{t("worker.identity.masked")}</span>
-            <Ltr>{identity.masked_cnic}</Ltr>
-          </p>
-        )}
-        {identity.status === "demo_approved" && <p className="text-sm text-muted">{t("worker.identity.demoNote")}</p>}
-        {!dashboard.identity_provider.available && !verified && <p className="text-sm text-muted">{t("worker.identity.unavailable")}</p>}
-        {!verified && identity.status !== "suspended" && (
-          <ButtonLink to={PATHS.workerVerify} icon={<ShieldCheck className="size-5" aria-hidden />} fullWidth>
-            {identity.status === "in_progress" || identity.status === "no_match" ? t("worker.identity.continue") : t("worker.identity.cta")}
-          </ButtonLink>
-        )}
-      </Card>
-
-      <Card id="profile" title={t("worker.profile.heading")} icon={<Wrench className="size-5" aria-hidden />}>
-        <StatusBadge tone={dashboard.onboarding.complete ? "success" : "neutral"}>
-          {dashboard.onboarding.complete ? t("worker.profile.complete") : t("worker.profile.incomplete")}
-        </StatusBadge>
-        <dl className="space-y-2">
-          {summaryRow(t("worker.profile.trade"), tradeItem ? [label(tradeItem.labels, language)] : [])}
-          {summaryRow(t("worker.profile.services"), profile.services_offered.map(serviceLabel))}
-          {summaryRow(t("worker.profile.main"), profile.primary_specialities.map(serviceLabel))}
-          {profile.services_not_offered.length > 0 && summaryRow(t("worker.profile.excluded"), profile.services_not_offered.map(serviceLabel))}
-          {summaryRow(t("onboarding.areas.cityLabel"), cityItem ? [label(cityItem.labels, language)] : [])}
-          {summaryRow(t("worker.profile.areas"), areaItems.map((area) => label(area.labels, language)))}
-        </dl>
-        <p className="text-sm text-muted">{t("worker.profile.declarationNote")}</p>
-        <div className="flex flex-wrap gap-2">
-          <ButtonLink to={PATHS.workerWork} variant="secondary" icon={<Pencil className="size-5" aria-hidden />}>
-            {t("worker.profile.editWork")}
-          </ButtonLink>
-          <ButtonLink to={PATHS.workerAreas} variant="secondary" icon={<MapPin className="size-5" aria-hidden />}>
-            {t("worker.profile.editAreas")}
-          </ButtonLink>
-        </div>
-      </Card>
-
-      <Card id="accepting" title={t("worker.accepting.label")} icon={profile.accepting_requests ? <CirclePlay className="size-5" aria-hidden /> : <CirclePause className="size-5" aria-hidden />}>
-        <StatusBadge tone={profile.accepting_requests ? "success" : "neutral"}>
-          {profile.accepting_requests ? t("worker.accepting.on") : t("worker.accepting.off")}
-        </StatusBadge>
-        <p className="text-sm text-muted">{t("worker.accepting.help")}</p>
-        {toggleError !== null && <Alert tone="danger">{describeError(toggleError, t)}</Alert>}
-        <Button
-          variant="secondary"
-          loading={toggling}
-          loadingLabel={t("onboarding.saving")}
-          icon={profile.accepting_requests ? <CirclePause className="size-5" aria-hidden /> : <CirclePlay className="size-5" aria-hidden />}
-          onClick={() => void toggleAccepting()}
-        >
-          {profile.accepting_requests ? t("worker.accepting.turnOff") : t("worker.accepting.turnOn")}
-        </Button>
-      </Card>
-
-      <Card id="phone" title={t("home.phoneStatus")} icon={<Phone className="size-5" aria-hidden />}>
-        <PhoneConfirmationBadge confirmation={user.phone_confirmation} />
-        <div>
-          <ButtonLink to={PATHS.phone} variant="secondary" icon={<ShieldCheck className="size-5" aria-hidden />}>
-            {t("home.managePhone")}
-          </ButtonLink>
-        </div>
-      </Card>
-
-      <div className="flex flex-col gap-1">
-        <Link to={PATHS.catalog} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
-          <List className="size-5" aria-hidden />
-          {t("landing.catalogLink")}
-        </Link>
-      </div>
+          <Link to={PATHS.catalog} className="inline-flex min-h-11 items-center gap-2 font-bold text-primary underline-offset-4 hover:underline">
+            <List className="size-5" aria-hidden />
+            {t("landing.catalogLink")}
+          </Link>
         </div>
       </div>
     </div>

@@ -48,6 +48,18 @@ export interface WorkerCard {
   previous_invitation: InvitationStatus | null;
   /** M9: from customer-confirmed completed jobs and visible reviews. average_rating is null when unrated. */
   history: { completed_jobs: number; relevant_jobs: number; review_count: number; average_rating: string | null };
+  /** Expected availability for the requested window, from the worker's reserving bookings (no other details). */
+  availability: WorkerAvailability;
+}
+
+/**
+ * ``available``: free for the requested time. ``partly_available``: booked for part of it, free from ``at`` (inside the
+ * window). ``busy``: booked for the rest of it, next expected free time ``at``. ``uncertain``: a current job has run
+ * past its planned end, so no time is given. ``at`` is UTC; show it in Asia/Karachi.
+ */
+export interface WorkerAvailability {
+  status: "available" | "partly_available" | "busy" | "uncertain";
+  at: string | null;
 }
 
 export interface CustomerInvitation {

@@ -45,7 +45,7 @@ export function workerNextStep(dashboard: WorkerDashboard, bookings: bookingsApi
   if (!dashboard.profile.accepting_requests) {
     return { key: "worker.paused", icon: ic(Power), to: `${PATHS.worker}#accepting`, action: "next.action.settings" };
   }
-  return { key: "worker.idle", icon: ic(CircleCheck), to: `${PATHS.worker}#profile`, action: "next.action.profile" };
+  return { key: "worker.idle", icon: ic(CircleCheck), to: PATHS.workerProfile, action: "next.action.profile" };
 }
 
 export function customerNextStep(jobs: JobListItem[] | null, bookings: bookingsApi.BookingCard[] | null): Step {
@@ -91,7 +91,10 @@ export function WorkerNextStep({ dashboard }: { dashboard: WorkerDashboard }) {
   const data = useLoad((signal) => Promise.all([settle(bookingsApi.listBookings(signal)), settle(invitationsApi.fetchInbox(signal))]));
   if (data.state.status !== "ready") return null;
   const [bookings, inbox] = data.state.data;
-  return <StepCard step={workerNextStep(dashboard, bookings?.results ?? null, inbox?.results ?? null)} />;
+  const step = workerNextStep(dashboard, bookings?.results ?? null, inbox?.results ?? null);
+  // "Verify your identity" is already the dashboard's one notice near the top: no second card saying the same.
+  if (step.key === "worker.verify") return null;
+  return <StepCard step={step} />;
 }
 
 /** Customer: the most relevant next action from bookings and requests. */

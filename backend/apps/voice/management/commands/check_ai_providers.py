@@ -5,6 +5,7 @@
     python manage.py check_ai_providers --only cnic_ocr --cnic-image ../docs/demo/cnic/demo-card-bilal-ahmed.png
     python manage.py check_ai_providers --only agreement_check
     python manage.py check_ai_providers --only interpretation
+    python manage.py check_ai_providers --only quote_terms [--audio quote.mp3]
 
 - Speech-to-text runs only with --audio (any supported format, ≤ 60 s, ≤ 10 MB) through the configured
   provider (ElevenLabs Scribe for the pitch configuration).
@@ -19,12 +20,18 @@
   source statements: the Urdu M7 sample and the pitch example (Rs. 1,200 "including materials" vs a labour-only
   quote → exactly one materials finding; revised to labour + materials → no findings), the same in Roman Urdu,
   and a case with a separate timing disagreement that must stay a second finding.
+- Quote terms (the worker's quote answered by voice) interprets the Urdu rehearsal sentence "Rs. 1,200 for labour,
+  the customer provides the materials, and I can work Friday from 4 to 6 PM" (number words, as spoken) and expects
+  1200 / customer / the coming Friday / 16:00–18:00 with every other term left empty. With live speech providers it
+  also reads the sentence aloud (text-to-speech), transcribes that audio (speech-to-text) and interprets the
+  transcript; with --audio it transcribes your own recording instead.
 Each step reports OK, or the error code and reason (not configured / limit / unavailable / invalid output).
 Use fictional speech and text only — never real CNIC numbers or personal details.
 """
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
@@ -38,7 +45,9 @@ from apps.voice.audio import inspect_audio
 
 SAMPLE_TEXT = "میرا نام احمد ہے۔ میں الیکٹریشن ہوں۔ میں پنکھے لگاتا ہوں لیکن motor rewinding نہیں کرتا۔"
 SPEECH_SAMPLE = "احمد صاحب کل شام G-9 میں دو پنکھے لگائیں گے۔ AC کی service نہیں ہو گی۔"
-STEPS = ("speech_to_text", "interpretation", "text_to_speech", "cnic_ocr", "agreement_check")
+STEPS = ("speech_to_text", "interpretation", "text_to_speech", "cnic_ocr", "agreement_check", "quote_terms")
+# Fictional: Rs. 1,200 labour, the customer provides the materials, Friday 4–6 PM (number words, as a worker says them).
+QUOTE_SAMPLE_UR = "مزدوری کے بارہ سو روپے ہوں گے، سامان گاہک خود دیں گے، اور میں جمعہ کو شام چار سے چھ بجے تک کام کر سکتا ہوں۔"
 JOB_SAMPLE_EN = "Please install two ceiling fans at my house in G-9 tomorrow evening. No AC service needed."
 WORK_SAMPLE_UR = "میں الیکٹریشن ہوں۔ میں پنکھے لگاتا ہوں اور wiring ٹھیک کرتا ہوں۔ میرا خاص کام پنکھے لگانا ہے۔ UPS کا کام نہیں کرتا۔"
 AREAS_SAMPLE_UR = "میں اسلام آباد میں G-9 اور G-10 میں کام کرتا ہوں۔ F-8 نہیں جاتا۔"
@@ -134,6 +143,8 @@ class Command(BaseCommand):
             self.check_cnic_ocr(cnic_image)
         if "agreement_check" in steps:
             self.check_agreement()
+        if "quote_terms" in steps:
+            self.check_quote_terms(audio, language)
 
     def check_agreement(self) -> None:
         import time
@@ -265,6 +276,56 @@ class Command(BaseCommand):
                 f"{result.provider}/{result.model} simulated={result.simulated} fields={draft['fields']} "
                 f"unmatched={draft['unmatched_mentions']} uncertain={draft['uncertain']} {time.monotonic() - started:.1f}s",
             )
+
+    def _quote_expected(self, fields: dict) -> bool:
+        today = drafts.karachi_today()
+        ahead = (4 - today.weekday()) % 7  # Friday
+        friday = None if ahead == 0 else (today + timedelta(days=ahead)).isoformat()  # said on a Friday: left unclear
+        return (fields["labour_amount"] == 1200 and fields["materials"] == "customer" and fields["date"] == friday
+                and (fields["start_time"], fields["end_time"]) == ("16:00", "18:00")
+                and fields["labour_basis"] is None and fields["quantity"] is None and fields["materials_amount"] is None)
+
+    def _interpret_quote(self, step: str, text: str, language: str) -> None:
+        import time
+
+        started = time.monotonic()
+        try:
+            result = registry.interpretation().interpret(kind="quote_terms", text=text, language=language,
+                                                         catalog=drafts.catalog_context("quote_terms"))
+            draft = drafts.build_draft("quote_terms", drafts.validate_raw("quote_terms", result.raw), text, drafts.CatalogIndex.load())
+        except ProviderError as exc:
+            self.report(step, False, f"{settings.INTERPRETATION_PROVIDER}: {exc.code} ({exc.reason})")
+            return
+        self.report(step, self._quote_expected(draft["fields"]),
+                    f"{result.provider}/{result.model} simulated={result.simulated} fields={draft['fields']} "
+                    f"missing={draft['missing']} uncertain={draft['uncertain']} heard={draft['heard']} "
+                    f"{time.monotonic() - started:.1f}s")
+
+    def check_quote_terms(self, audio: str | None, language: str) -> None:
+        """Interpretation of the Urdu sample, then (live providers) speech → transcript → interpretation."""
+        self._interpret_quote("quote_terms[text]", QUOTE_SAMPLE_UR, "ur")
+        try:
+            if audio:
+                data = Path(audio).read_bytes()
+            elif registry.text_to_speech().simulated or registry.speech_to_text().simulated:
+                self.stdout.write("[SKIP] quote_terms[speech]: needs live text-to-speech and speech-to-text (or --audio).")
+                return
+            else:
+                data = registry.text_to_speech().synthesize(text=QUOTE_SAMPLE_UR, language="ur").audio
+        except ProviderError as exc:  # e.g. a provider selected without its key: reported, never raised
+            self.report("quote_terms[speech]", False, f"{exc.code} ({exc.reason})")
+            return
+        info = inspect_audio(data)
+        try:
+            transcript = registry.speech_to_text().transcribe(audio=data, mime_type=info.format.provider_mime_type,
+                                                            language_hint="ur" if language == "auto" else language,
+                                                            purpose="quote_terms")
+        except ProviderError as exc:
+            self.report("quote_terms[transcript]", False, f"{settings.SPEECH_TO_TEXT_PROVIDER}: {exc.code} ({exc.reason})")
+            return
+        self.report("quote_terms[transcript]", bool(transcript.text.strip()),
+                    f"{transcript.provider}/{transcript.model} language={transcript.language} text={transcript.text[:200]!r}")
+        self._interpret_quote("quote_terms[speech]", transcript.text, transcript.language)
 
     def check_text_to_speech(self, text: str, language: str, save_to: str | None) -> None:
         try:

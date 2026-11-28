@@ -99,6 +99,33 @@ class WorkerMeView(APIView):
 
 
 @method_decorator(never_cache, name="dispatch")
+class WorkerStatsView(APIView):
+    """GET /api/v1/workers/me/stats/ — the signed-in worker's own lifetime totals for the dashboard.
+
+    Counted on the server (never from a paginated list): every invitation addressed to this worker in any status,
+    customer-confirmed completed bookings and visible reviews (``apps.reviews.services``, the same aggregates used for
+    recommendations).
+    """
+
+    permission_classes = [IsWorker]
+
+    def get(self, request):
+        from apps.invitations.models import Invitation  # invitations depends on workers
+        from apps.reviews.services import rating_distribution, worker_stats
+
+        profile = get_profile(request.user)
+        stats = worker_stats([profile.pk])[str(profile.pk)]
+        distribution = rating_distribution(profile.pk)
+        return Response({
+            "invitations_received": Invitation.objects.filter(worker_profile=profile).count(),
+            "completed_jobs": stats.completed_jobs,
+            "review_count": stats.review_count,
+            "average_rating": str(stats.average) if stats.average is not None else None,
+            "rating_distribution": [{"stars": stars, "count": distribution[stars]} for stars in range(5, 0, -1)],
+        })
+
+
+@method_decorator(never_cache, name="dispatch")
 class WorkStepView(APIView):
     """PUT /api/v1/workers/me/work/ — screen 2: trade, services, main speciality, exclusions."""
 

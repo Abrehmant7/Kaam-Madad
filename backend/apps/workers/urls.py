@@ -4,6 +4,7 @@ from . import views
 
 worker_patterns = [
     path("me/", views.WorkerMeView.as_view(), name="worker-me"),
+    path("me/stats/", views.WorkerStatsView.as_view(), name="worker-stats"),
     path("me/work/", views.WorkStepView.as_view(), name="worker-work"),
     path("me/areas/", views.AreasStepView.as_view(), name="worker-areas"),
     path("me/preferences/", views.PreferencesView.as_view(), name="worker-preferences"),

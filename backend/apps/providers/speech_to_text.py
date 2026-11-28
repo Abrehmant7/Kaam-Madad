@@ -66,6 +66,8 @@ FIXTURE_TRANSCRIPTS = {
         "میرا خاص کام پنکھے لگانا ہے۔ UPS کا کام نہیں کرتا۔"
     ),
     "onboarding_areas": "میں اسلام آباد میں G-9 اور G-10 میں کام کرتا ہوں۔ F-8 نہیں جاتا۔",
+    # A worker's quote answered by voice (fictional): labour Rs. 1,200, the customer provides the materials, Friday 4–6 PM.
+    "quote_terms": "مزدوری کے 1200 روپے ہوں گے، سامان گاہک خود دیں گے، اور میں جمعہ کو شام 4 سے 6 بجے تک کام کر سکتا ہوں۔",
 }
 FIXTURE_DEFAULT = FIXTURE_TRANSCRIPTS["worker_introduction"]
 

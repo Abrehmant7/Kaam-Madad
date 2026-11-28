@@ -154,5 +154,12 @@ export function workerHandlers(dashboard: Dashboard = makeDashboard()): Record<s
     "GET /api/v1/catalog/areas/": jsonResponse(page(AREAS)),
     "GET /api/v1/catalog/trades/electrician/speciality-questions/": jsonResponse(QUESTIONS),
     "GET /api/v1/invitations/": jsonResponse(page([])),
+    "GET /api/v1/workers/me/stats/": jsonResponse(STATS_EMPTY),
   };
 }
+
+/** A new worker's Performance totals: no reviews, nothing completed. */
+export const STATS_EMPTY = {
+  invitations_received: 0, completed_jobs: 0, review_count: 0, average_rating: null,
+  rating_distribution: [5, 4, 3, 2, 1].map((stars) => ({ stars, count: 0 })),
+};

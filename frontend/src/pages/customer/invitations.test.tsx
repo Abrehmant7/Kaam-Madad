@@ -53,6 +53,26 @@ describe("find a worker (customer)", () => {
     expect(screen.getByText(/5:00\s?pm – 7:00\s?pm/i)).toBeInTheDocument(); // requested window in Asia/Karachi
   });
 
+  it("shows each worker's expected availability for the requested time, keeping busy workers listed", async () => {
+    const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+    mockApi({ ...bootHandlers(customer()), ...catalog,
+      "GET /api/v1/jobs/job-1/recommendations/": jsonResponse(recs([
+        { ...card(id(1)), availability: { status: "available", at: null } },
+        { ...card(id(2)), availability: { status: "busy", at: "2030-01-10T15:00:00Z" } },            // 8 PM Karachi
+        { ...card(id(3)), availability: { status: "partly_available", at: "2030-01-10T13:00:00Z" } }, // 6 PM Karachi
+        { ...card(id(4)), availability: { status: "uncertain", at: null } },
+      ])),
+      "GET /api/v1/jobs/job-1/invitations/": jsonResponse({ results: [] }) });
+    renderApp("/customer/requests/job-1/workers", "en");
+    expect(await screen.findByText(en["rec.list.heading"].replace("{count}", "4"))).toBeInTheDocument();
+    expect(screen.getByText(en["rec.availability.available"])).toBeInTheDocument();
+    expect(screen.getByText(/Next expected availability: Thursday,? 10 January 2030, \W*8:00\s?pm/i)).toBeInTheDocument();
+    expect(screen.getByText(/Expected to be free from Thursday,? 10 January 2030, \W*6:00\s?pm/i)).toBeInTheDocument();
+    expect(screen.getByText(en["rec.availability.uncertain"])).toBeInTheDocument();
+    expect(screen.getAllByText(en["rec.availability.choice"])).toHaveLength(3); // every conflict: choose someone else or agree a time
+    expect(screen.getAllByRole("button", { name: en["rec.invite"] })).toHaveLength(4); // nobody is hidden for being busy
+  });
+
   it("explains when nobody matches", async () => {
     mockApi({ ...bootHandlers(customer()), ...catalog,
       "GET /api/v1/jobs/job-1/recommendations/": jsonResponse(recs([])),

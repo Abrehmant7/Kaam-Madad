@@ -30,7 +30,7 @@ export function navigationFor(user: AccountUser): { main: NavItem[]; quick: NavI
     return {
       main: [
         home, invitations, bookings,
-        { to: `${PATHS.worker}#profile`, label: "nav.profile", icon: icon(UserRound) },
+        { to: PATHS.workerProfile, label: "nav.profile", icon: icon(UserRound) },
         { to: PATHS.workerVerify, label: "nav.verify", icon: icon(ShieldCheck) },
         reports,
       ],

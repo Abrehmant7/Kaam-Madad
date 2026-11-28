@@ -1,4 +1,4 @@
-import { Ban, Banknote, BadgeCheck, Hash, type LucideIcon, Package, PackageCheck, PackagePlus, PackageX, Search, UserRound, Wrench } from "lucide-react";
+import { Ban, Banknote, BadgeCheck, ChevronDown, Hash, type LucideIcon, Package, PackageCheck, PackagePlus, PackageX, Search, UserRound, Wrench } from "lucide-react";
 import { useState } from "react";
 
 import type { Materials, QuoteTerms, VisitFeeTreatment } from "../../api/conversations";
@@ -41,6 +41,9 @@ export function useTerms(initial: Initial | null) {
   const [date, setDate] = useState(s.date);
   const [startTime, setStartTime] = useState(s.time);
   const [endTime, setEndTime] = useState(e.time);
+  // "More options" starts open only when the terms already use them (an earlier draft, quote or booking).
+  const [initialMore] = useState(() => Boolean(initial?.inspection_only || initial?.visit_fee
+    || (initial?.visit_fee_treatment && initial.visit_fee_treatment !== "none") || initial?.exclusions?.trim()));
 
   const inspectionOnly = inspection[0] === "yes";
   function terms(): QuoteTerms {
@@ -60,7 +63,7 @@ export function useTerms(initial: Initial | null) {
     };
   }
   return {
-    terms, inspectionOnly,
+    terms, inspectionOnly, initialMore,
     fields: { inspection, setInspection, scope, setScope, quantity, setQuantity, labour, setLabour, basis, setBasis, materials,
               setMaterials, materialsAmount, setMaterialsAmount, visitFee, setVisitFee, visit, setVisit, exclusions,
               setExclusions, date, setDate, startTime, setStartTime, endTime, setEndTime },
@@ -69,11 +72,19 @@ export function useTerms(initial: Initial | null) {
 
 export type TermsState = ReturnType<typeof useTerms>;
 
+/**
+ * The core terms stay visible: the work, the labour price, who supplies the materials (and a separate materials
+ * charge), and the appointment. Inspection-only, the visit fee and exclusions are under "More options", which opens by
+ * itself when the terms already use them, when an inspection needs them, or when one of them has an error.
+ */
 export function TermsFields({ state, errors, allowInspection = true, allowTime = true }: {
   state: TermsState; errors: (name: string) => string[]; allowInspection?: boolean; allowTime?: boolean;
 }) {
   const { t, language } = useI18n();
   const f = state.fields;
+  const [moreOpen, setMoreOpen] = useState(state.initialMore);
+  const moreNeeded = state.inspectionOnly
+    || ["inspection_only", "visit_fee", "visit_fee_treatment", "exclusions"].some((name) => errors(name).length > 0);
   const tile = <V extends string>(values: V[], prefix: string, icons: Record<string, LucideIcon> = ICONS) =>
     values.map((value) => {
       const Icon = icons[value] ?? ICONS[value] ?? Package;
@@ -83,22 +94,19 @@ export function TermsFields({ state, errors, allowInspection = true, allowTime =
 
   return (
     <>
-      {allowInspection && (
-        <IconTileGroup label={t("quote.form.inspectionOnly")} mode="single" columns={2} value={f.inspection} onChange={f.setInspection}
-          options={[{ value: "no", label: t("quote.form.fullJob"), icon: <Wrench className="size-6" aria-hidden /> },
-                    { value: "yes", label: t("quote.form.inspection"), icon: <Search className="size-6" aria-hidden /> }]} />
-      )}
       <TextArea label={t("quote.field.scope")} value={f.scope} onChange={f.setScope} errors={errors("scope")} rows={3} maxLength={1000} dir={dir(f.scope)} />
 
       {!state.inspectionOnly && (
         <>
           <IconTileGroup label={t("quote.form.basis")} mode="single" options={tile<"total" | "per_item">(["total", "per_item"], "quote.basis")}
             value={f.basis} onChange={f.setBasis} />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid max-w-xl grid-cols-2 gap-3">
             <TextField label={t("quote.form.labourAmount")} value={f.labour} onChange={f.setLabour} errors={errors("labour_amount")} inputMode="decimal" dir="ltr" maxLength={12} />
-            <TextField label={t("quote.field.quantity")} value={f.quantity} onChange={f.setQuantity} errors={errors("quantity")} inputMode="numeric" dir="ltr" maxLength={3} />
+            {(f.basis[0] === "per_item" || f.quantity || errors("quantity").length > 0) && (
+              <TextField label={t("quote.field.quantity")} value={f.quantity} onChange={f.setQuantity} errors={errors("quantity")} inputMode="numeric" dir="ltr" maxLength={3} />
+            )}
           </div>
-          <IconTileGroup label={t("quote.field.materials")} mode="single" columns={1} options={tile(MATERIALS, "quote.materials")}
+          <IconTileGroup label={t("quote.field.materials")} mode="single" options={tile(MATERIALS, "quote.materials")}
             value={f.materials} onChange={f.setMaterials} errors={errors("materials")} />
           {f.materials[0] === "worker_extra" && (
             <TextField label={t("quote.form.materialsAmount")} hint={t("quote.form.materialsAmountHint")} value={f.materialsAmount}
@@ -106,14 +114,6 @@ export function TermsFields({ state, errors, allowInspection = true, allowTime =
           )}
         </>
       )}
-
-      <IconTileGroup label={t("quote.field.visit")} mode="single" columns={1} options={tile(VISIT, "quote.visit", VISIT_ICONS)}
-        value={f.visit} onChange={f.setVisit} errors={errors("visit_fee_treatment")} />
-      {f.visit[0] !== "none" && f.visit[0] !== "included" && (
-        <TextField label={t("quote.form.visitFee")} value={f.visitFee} onChange={f.setVisitFee} errors={errors("visit_fee")} inputMode="decimal" dir="ltr" maxLength={12} />
-      )}
-      <TextArea label={t("quote.field.exclusions")} hint={t("quote.form.exclusionsHint")} value={f.exclusions} onChange={f.setExclusions}
-        rows={2} maxLength={500} dir={dir(f.exclusions)} />
 
       {allowTime ? (
         <fieldset className="space-y-3">
@@ -128,6 +128,28 @@ export function TermsFields({ state, errors, allowInspection = true, allowTime =
       ) : (
         <p className="text-sm text-muted">{t("booking.change.timeLocked")}</p>
       )}
+
+      <details className="group rounded-2xl border border-line bg-white p-3" open={moreOpen || moreNeeded}
+        onToggle={(event) => setMoreOpen(event.currentTarget.open)}>
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 font-bold text-primary">
+          {t("quote.form.more")}
+          <ChevronDown className="size-5 transition-transform group-open:rotate-180" aria-hidden />
+        </summary>
+        <div className="mt-3 space-y-4">
+          {allowInspection && (
+            <IconTileGroup label={t("quote.form.inspectionOnly")} mode="single" columns={2} value={f.inspection} onChange={f.setInspection}
+              options={[{ value: "no", label: t("quote.form.fullJob"), icon: <Wrench className="size-6" aria-hidden /> },
+                        { value: "yes", label: t("quote.form.inspection"), icon: <Search className="size-6" aria-hidden /> }]} />
+          )}
+          <IconTileGroup label={t("quote.field.visit")} mode="single" options={tile(VISIT, "quote.visit", VISIT_ICONS)}
+            value={f.visit} onChange={f.setVisit} errors={errors("visit_fee_treatment")} />
+          {f.visit[0] !== "none" && f.visit[0] !== "included" && (
+            <TextField label={t("quote.form.visitFee")} value={f.visitFee} onChange={f.setVisitFee} errors={errors("visit_fee")} inputMode="decimal" dir="ltr" maxLength={12} />
+          )}
+          <TextArea label={t("quote.field.exclusions")} hint={t("quote.form.exclusionsHint")} value={f.exclusions} onChange={f.setExclusions}
+            rows={2} maxLength={500} dir={dir(f.exclusions)} />
+        </div>
+      </details>
     </>
   );
 }

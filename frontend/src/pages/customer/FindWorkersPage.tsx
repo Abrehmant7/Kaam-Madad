@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarCheck, Check, Eye, EyeOff, MessagesSquare, Save, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { ArrowLeft, CalendarCheck, CalendarClock, CalendarX, Check, Clock, Eye, EyeOff, MessagesSquare, Save, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 
@@ -13,7 +13,7 @@ import { TextArea } from "../../components/ui/TextArea";
 import { Stars } from "../../features/bookings/ReviewPanel";
 import { SharedJob } from "../../features/invitations/SharedJob";
 import { type JobCatalog, labeller, loadJobCatalog } from "../../features/jobs/catalog";
-import { textDir } from "../../features/jobs/text";
+import { isolateLtr, textDir } from "../../features/jobs/text";
 import { UrduDescriptionEditor } from "../../features/jobs/UrduDescription";
 import { formatDate, formatTime } from "../../features/jobs/time";
 import { LoadError, useLoad } from "../../features/worker/shared";
@@ -25,6 +25,23 @@ const VERIFICATION_KEYS = {
   provider_verified: "rec.verification.provider_verified",
   manually_reviewed: "rec.verification.manually_reviewed",
 } as const;
+
+/** Expected availability for the requested time (status and one time only, shown in Asia/Karachi). */
+function AvailabilityLine({ availability }: { availability: invitationsApi.WorkerAvailability }) {
+  const { t, language } = useI18n();
+  const when = availability.at ? `${formatDate(availability.at, language)}${language === "ur" ? "، " : ", "}${isolateLtr(formatTime(availability.at, language))}` : "";
+  const tone = availability.status === "available" ? "text-success-strong" : availability.status === "uncertain" ? "text-muted" : "text-warning-strong";
+  const Icon = availability.status === "available" ? CalendarCheck : availability.status === "busy" ? CalendarX : availability.status === "uncertain" ? Clock : CalendarClock;
+  return (
+    <div className="space-y-0.5 text-sm">
+      <p className={`flex items-start gap-1.5 font-bold ${tone}`}>
+        <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>{t(`rec.availability.${availability.status}`, { when })}</span>
+      </p>
+      {availability.status !== "available" && <p className="text-muted">{t("rec.availability.choice")}</p>}
+    </div>
+  );
+}
 
 function workerTitle(trade: string | null, workerId: string, catalog: JobCatalog, language: "ur" | "en", t: ReturnType<typeof useI18n>["t"]) {
   return `${labeller(catalog, language).trade(trade)} · ${t("rec.ref")} ${invitationsApi.workerRef(workerId)}`;
@@ -222,6 +239,7 @@ function Workers({ jobId, recs, catalog, history, urdu, reload }: {
                     )}
                     {card.history.completed_jobs > 0 && <span>· {t("rec.completedTotal", { count: card.history.completed_jobs })}</span>}
                   </p>
+                  {card.availability && <AvailabilityLine availability={card.availability} />}
                   {card.is_new && <p className="text-sm text-muted">{t("rec.newNote")}</p>}
                   {card.previous_invitation === "declined" && <p className="text-sm text-muted">{t("rec.previous.declined")}</p>}
                   {card.previous_invitation === "withdrawn" && <p className="text-sm text-muted">{t("rec.previous.withdrawn")}</p>}

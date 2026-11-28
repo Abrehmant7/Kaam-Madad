@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -133,12 +133,16 @@ describe("completion", () => {
 });
 
 describe("worker dashboard history", () => {
-  it("shows completed jobs, rating with count and job feedback; no rating when unrated", async () => {
+  it("shows Performance from the server totals and the feedback per completed job", async () => {
     mockApi({
       ...bootHandlers(worker()), ...catalog,
       ...workerHandlers(makeDashboard(null)),
       "GET /api/v1/invitations/": jsonResponse(page([])),
       "GET /api/v1/bookings/": jsonResponse(page([])),
+      "GET /api/v1/workers/me/stats/": jsonResponse({
+        invitations_received: 57, completed_jobs: 2, review_count: 1, average_rating: "4.0",
+        rating_distribution: [{ stars: 5, count: 0 }, { stars: 4, count: 1 }, { stars: 3, count: 0 }, { stars: 2, count: 0 }, { stars: 1, count: 0 }],
+      }),
       "GET /api/v1/bookings/feedback/": jsonResponse({
         completed_jobs: 2, review_count: 1, average_rating: "4.0",
         jobs: [
@@ -150,8 +154,15 @@ describe("worker dashboard history", () => {
     });
     renderApp("/worker", "en");
     expect(await screen.findByText(en["feedback.heading"])).toBeInTheDocument();
-    expect(screen.getByText("4.0")).toBeInTheDocument();
-    expect(screen.getByText(en["feedback.reviewCount"].replace("{count}", "1"))).toBeInTheDocument();
+    const performance = within(await screen.findByRole("region", { name: en["perf.heading"] }));
+    expect(await performance.findByText("4.0")).toBeInTheDocument();
+    expect(performance.getByText(en["feedback.reviewCount"].replace("{count}", "1"))).toBeInTheDocument();
+    // Exact counts beside each bar: lifetime invitations (more than one page) and completed jobs.
+    const invitations = performance.getByText(en["perf.invitations"]).closest("div")!;
+    expect(within(invitations).getByText("57")).toBeInTheDocument();
+    expect(within(performance.getByText(en["perf.completed"]).closest("div")!).getByText("2")).toBeInTheDocument();
+    const fourStars = performance.getByLabelText(en["perf.stars"].replace("{count}", "4")).closest("li")!;
+    expect(within(fourStars).getByText("1")).toBeInTheDocument();
     expect(screen.getByText("“Neat work”")).toBeInTheDocument();
     expect(screen.getByText(en["feedback.noReviewForJob"])).toBeInTheDocument();
     expect(screen.queryByText(en["rec.noReviews"])).not.toBeInTheDocument();

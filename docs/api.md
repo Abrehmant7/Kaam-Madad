@@ -191,6 +191,18 @@ update):
   and offered), `services_not_offered`.
 - `onboarding_areas`: fields `city`, `service_areas`. `draft.not_selected` lists the areas the worker said they do
   NOT go to; these are never selected.
+- `quote_terms` (the worker's quote answered by voice; upload purpose `quote_terms`): fields `scope`, `labour_amount`
+  (PKR, integer), `labour_basis` (`total` | `per_item`), `quantity`, `materials` (`included` | `worker_extra` |
+  `customer` | `none`), `materials_amount` (only with `worker_extra`), `date` (YYYY-MM-DD), `start_time` and
+  `end_time` (HH:MM, 24-hour).
+  - Only clearly stated terms are filled. The model reports the day as said (explicit date, weekday, or
+    today/tomorrow/day after); the **server** resolves it in Asia/Karachi. A weekday said on that same weekday,
+    disagreeing day words, a date more than 90 days ahead, and a time without a clear AM/PM stay empty and are listed
+    in `draft.uncertain` (`draft.heard` keeps the words).
+  - `draft.missing` lists core terms not said at all.
+  - Reuse is per day: the same words on another day are interpreted again, so a weekday never resolves to a stale
+    date.
+  - Suggestions only. Nothing saves or submits a quote; the quote endpoints validate and calculate as before.
 
 Ambiguous choices stay empty and are listed in `draft.uncertain`. Providers (`INTERPRETATION_PROVIDER`): `groq`
 (strict JSON Schema) · `gemini` · `fixture` · `unconfigured`. For `job_description`, the draft field `description`
@@ -284,6 +296,20 @@ Screen 3: `PUT /workers/me/areas/` `{"city", "service_areas": []}` → the dashb
 
 `PATCH /workers/me/preferences/` `{"accepting_requests": bool}` → the dashboard payload. This is the worker's own
 choice and is separate from completion and identity.
+
+`GET /workers/me/stats/` (worker, own data only) → lifetime totals for the dashboard's Performance section:
+
+```json
+{"invitations_received": 57, "completed_jobs": 2, "review_count": 1, "average_rating": "4.0",
+ "rating_distribution": [{"stars": 5, "count": 0}, {"stars": 4, "count": 1}, {"stars": 3, "count": 0},
+                         {"stars": 2, "count": 0}, {"stars": 1, "count": 0}]}
+```
+
+- `invitations_received` counts every invitation addressed to the worker, in any status. It is counted on the
+  server, never from a paginated list.
+- `completed_jobs` counts customer-confirmed completed bookings. The review figures count visible reviews only
+  (`apps.reviews.services`, the same aggregates as recommendations and `GET /bookings/feedback/`).
+- `average_rating` is `null` with no reviews, never zero.
 
 ### Demo verification (event default, pitch update)
 
@@ -500,9 +526,26 @@ worker; anything else is `404`, and customers get `403 worker_role_required`.
               "is_new": true, "previous_invitation": null,
               "history": {"completed_jobs": 0, "relevant_jobs": 0, "review_count": 0, "average_rating": null},
               "reasons": [{"code": "speciality", "services": ["elec_fan_install"]},
-                          {"code": "serves_area", "area": "isb-g-9"}]}],
+                          {"code": "serves_area", "area": "isb-g-9"}],
+              "availability": {"status": "busy", "at": "…Z"}}],
  "active_invitation": null}
 ```
+
+**Availability** (`apps.bookings.availability`, one batched query for the listed workers) uses the requested window
+and the worker's reserving bookings only (confirmed, arrived, in progress, completion requested, disputed).
+Cancelled, completed and closed bookings are ignored. Only a status and at most one UTC time are exposed, to be shown
+in Asia/Karachi; never another customer's booking, job, address or times.
+
+| Status | Meaning |
+| --- | --- |
+| `available` | Free for the requested time. A booking ending exactly at the start counts as free (half-open). |
+| `partly_available` | Booked for part of the window. `at` is the first expected free moment inside it, following adjacent bookings. |
+| `busy` | Booked for the rest of the window. `at` is the next expected free time, so 4–6 PM then 6–8 PM gives 8 PM. |
+| `uncertain` | A job the worker arrived at or started is still open after its planned end. `at` is `null`, never a past time. |
+
+This is informative only: ranking and eligibility are unchanged, a busy worker stays listed, and acceptance and
+rescheduling keep their locked server-side overlap checks (`schedule_conflict`). A stale estimate therefore cannot
+book an unavailable worker.
 
 **Matching.** A worker is listed only if all of these hold:
 1. The account is an active worker account.

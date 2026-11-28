@@ -103,6 +103,22 @@ export interface IdentityCase extends IdentitySummary {
 
 export const fetchWorker = (signal?: AbortSignal) => apiRequest<WorkerDashboard>("/workers/me/", { signal });
 
+/** The signed-in worker's lifetime totals, counted on the server (Performance on the dashboard). */
+export interface WorkerStats {
+  /** Every invitation addressed to this worker, in any status. */
+  invitations_received: number;
+  /** Customer-confirmed completed bookings. */
+  completed_jobs: number;
+  /** Visible reviews only. */
+  review_count: number;
+  /** One decimal ("4.5"); null when there are no visible reviews — never zero. */
+  average_rating: string | null;
+  /** 5 stars first. */
+  rating_distribution: { stars: number; count: number }[];
+}
+
+export const fetchStats = (signal?: AbortSignal) => apiRequest<WorkerStats>("/workers/me/stats/", { signal });
+
 export const saveWork = (payload: WorkPayload) =>
   apiRequest<WorkerDashboard>("/workers/me/work/", { method: "PUT", body: payload });
 

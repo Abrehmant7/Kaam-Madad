@@ -93,6 +93,13 @@ def worker_stats(profile_ids, requested_services=()) -> dict[str, WorkerStats]:
     return {pk: WorkerStats(**values) for pk, values in found.items()}
 
 
+def rating_distribution(profile_id) -> dict[int, int]:
+    """Visible reviews of one worker per star rating (1–5), in one grouped query. Every rating is present (0 if none)."""
+    rows = visible_reviews().filter(worker_profile_id=profile_id).values("rating").annotate(n=Count("id"))
+    found = {row["rating"]: row["n"] for row in rows}
+    return {stars: found.get(stars, 0) for stars in range(1, 6)}
+
+
 # --- Payloads ---------------------------------------------------------------------------------------------------
 
 

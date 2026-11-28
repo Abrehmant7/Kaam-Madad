@@ -8,6 +8,7 @@ import { useI18n } from "../../i18n/context";
 import { describeError, fieldErrorCodes, fieldErrorText } from "../../i18n/errors";
 import { clearDraft, readDraft, writeDraft } from "../drafts";
 import { money } from "./quoteText";
+import { QuoteVoice } from "./QuoteVoice";
 import { TermsFields, useTerms } from "./TermsFields";
 
 /** In-memory key for the terms the worker is typing (kept while they check the chat and come back). */
@@ -75,6 +76,7 @@ export function QuoteForm({ invitationId, start, onDone, onCancel }: {
       </div>
       {failure !== null && <Alert tone="danger">{describeError(failure, t)}</Alert>}
 
+      <QuoteVoice state={state} />
       <TermsFields state={state} errors={errors} />
 
       {saved?.totals && (

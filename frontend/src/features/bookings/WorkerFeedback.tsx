@@ -8,7 +8,7 @@ import { formatDate } from "../jobs/time";
 import { LoadError, useLoad } from "../worker/shared";
 import { Stars } from "./ReviewPanel";
 
-/** Worker dashboard (REV-02): completed jobs, rating with count, and feedback per job. No addresses or identities. */
+/** Worker dashboard (REV-02): feedback per completed job (the totals are in Performance). No addresses or identities. */
 export function WorkerFeedback() {
   const { t, language } = useI18n();
   const data = useLoad((signal) => Promise.all([bookingsApi.fetchFeedback(signal), loadJobCatalog(signal)]), []);
@@ -23,25 +23,6 @@ export function WorkerFeedback() {
         <Award className="size-6 text-primary" aria-hidden />
         {t("feedback.heading")}
       </h2>
-      <dl className="grid grid-cols-2 gap-2 text-center">
-        <div className="rounded-xl bg-surface p-3">
-          <dt className="text-sm text-muted">{t("feedback.completed")}</dt>
-          <dd className="text-2xl font-bold">{feedback.completed_jobs}</dd>
-        </div>
-        <div className="rounded-xl bg-surface p-3">
-          <dt className="text-sm text-muted">{t("feedback.rating")}</dt>
-          <dd className="font-bold">
-            {feedback.average_rating !== null ? (
-              <span className="flex flex-col items-center">
-                <span className="text-2xl" dir="ltr">{feedback.average_rating}</span>
-                <span className="text-sm font-normal">{t("feedback.reviewCount", { count: feedback.review_count })}</span>
-              </span>
-            ) : (
-              <span className="text-sm font-normal text-muted">{t("rec.noReviews")}</span>
-            )}
-          </dd>
-        </div>
-      </dl>
       {feedback.completed_jobs === 0 ? (
         <p className="text-sm text-muted">{t("feedback.none")}</p>
       ) : (

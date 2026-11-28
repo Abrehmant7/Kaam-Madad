@@ -11,6 +11,7 @@ export const PATHS = {
   workerWork: "/worker/setup/work",
   workerAreas: "/worker/setup/areas",
   workerVerify: "/worker/verify",
+  workerProfile: "/worker/profile",
   customer: "/customer",
   newJob: "/customer/requests/new",
   catalog: "/catalog",

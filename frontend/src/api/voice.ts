@@ -1,7 +1,7 @@
 import { apiRequest } from "./client";
 
-/** Interpretation kinds: the M3/M5 drafts and the two worker signup screens answered by voice. */
-export type VoiceKind = "worker_introduction" | "job_description" | "onboarding_work" | "onboarding_areas";
+/** Interpretation kinds: the M3/M5 drafts, the two worker signup screens and the worker's quote, answered by voice. */
+export type VoiceKind = "worker_introduction" | "job_description" | "onboarding_work" | "onboarding_areas" | "quote_terms";
 /** Upload purposes: the two interpretation kinds, plus conversation voice notes (never interpreted as drafts). */
 export type ClipPurpose = VoiceKind | "message" | "review" | "report";
 export type LanguageHint = "ur" | "en";
@@ -58,7 +58,22 @@ export interface OnboardingFields {
   service_areas: string[];
 }
 
-export type DraftFields = Partial<WorkerIntroductionFields & JobDescriptionFields & OnboardingFields>;
+/** quote_terms: only what the worker clearly said; the date is resolved by the server in Asia/Karachi. */
+export interface QuoteTermsFields {
+  scope: string | null;
+  labour_amount: number | null;
+  labour_basis: "total" | "per_item" | null;
+  quantity: number | null;
+  materials: "included" | "worker_extra" | "customer" | "none" | null;
+  materials_amount: number | null;
+  /** YYYY-MM-DD */
+  date: string | null;
+  /** HH:MM, 24-hour */
+  start_time: string | null;
+  end_time: string | null;
+}
+
+export type DraftFields = Partial<WorkerIntroductionFields & JobDescriptionFields & OnboardingFields & QuoteTermsFields>;
 
 export interface Draft {
   fields: DraftFields;

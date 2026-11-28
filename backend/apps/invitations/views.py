@@ -28,6 +28,7 @@ from apps.jobs.models import JobRequest
 from apps.jobs.summary import matching_summary, privacy_warnings
 from apps.jobs.views import apply_urdu_edit, job_payload, own_jobs
 
+from apps.bookings import availability
 from apps.bookings.errors import InvitationBooked
 from apps.bookings.services import booking_for_invitation, booking_for_job
 from apps.reports.services import ContactBlocked, blocked_user_ids, is_blocked, require_unrestricted
@@ -146,8 +147,10 @@ class RecommendationsView(APIView):
         for invitation in job.invitations.order_by("created_at"):
             history[str(invitation.worker_profile_id)] = invitation.status
         blocked = blocked_user_ids(request.user)  # M10: never recommend a worker either side blocked
-        workers = [matching.worker_card(m, history.get(str(m.profile.id))) for m in matching.recommend(summary)
-                   if m.profile.user_id not in blocked]
+        matches = [m for m in matching.recommend(summary) if m.profile.user_id not in blocked]
+        # Informative only (ranking and eligibility unchanged): one batched lookup of the workers' reserving bookings.
+        free = availability.for_workers([m.profile.id for m in matches], job.window_start, job.window_end)
+        workers = [matching.worker_card(m, history.get(str(m.profile.id)), free.get(str(m.profile.id))) for m in matches]
         active = _active(job)
         return Response({
             "request": {"trade": summary["trade"], "services": summary["services"], "city": summary["city"],

@@ -29,6 +29,7 @@ import { OnboardingWorkPage } from "./pages/worker/OnboardingWorkPage";
 import { VerifyIdentityPage } from "./pages/worker/VerifyIdentityPage";
 import { WorkerInvitationPage } from "./pages/worker/WorkerInvitationPage";
 import { WorkerDashboardPage } from "./pages/worker/WorkerDashboardPage";
+import { WorkerProfilePage } from "./pages/worker/WorkerProfilePage";
 
 // Feature modules add their routes here (worker onboarding, requests, bookings…).
 export const routes: RouteObject[] = [
@@ -76,6 +77,7 @@ export const routes: RouteObject[] = [
         element: <RequireAuth role="worker" />,
         children: [
           { index: true, element: <WorkerDashboardPage /> },
+          { path: "profile", element: <WorkerProfilePage /> },
           { path: "setup/work", element: <OnboardingWorkPage /> },
           { path: "setup/areas", element: <OnboardingAreasPage /> },
           // Event demo flow: two sample uploads. The M4 card scan + demo registry stays available, outside the default flow.

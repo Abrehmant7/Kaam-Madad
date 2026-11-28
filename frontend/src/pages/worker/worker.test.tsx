@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -96,18 +96,88 @@ describe("worker onboarding (screens 2 and 3)", () => {
 });
 
 describe("worker dashboard", () => {
-  it("is usable without verification and explains why jobs are blocked", async () => {
+  const verified = { identity: { status: "demo_approved", case_id: "c-1", method: "demo_sample_upload", masked_cnic: null, simulated: true, counts_here: true, decided_at: "x", updated_at: "x" },
+    eligibility: { can_take_jobs: true, receives_requests: true, reasons: [] } };
+
+  it("shows one verification notice instead of the eligibility, identity, profile and phone cards", async () => {
     mockApi({ ...bootHandlers(worker()), ...workerHandlers(makeDashboard(null)) });
     renderApp("/worker", "en");
     expect(await screen.findByRole("heading", { level: 1, name: en["worker.dashboard.title"] })).toBeInTheDocument();
-    expect(screen.getByText(en["worker.eligibility.no"])).toBeInTheDocument();
-    expect(screen.getByText(en["worker.eligibility.reason.identity_not_started"])).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: en["worker.identity.cta"] })).toHaveAttribute("href", "/worker/verify");
-    expect(screen.getByText(en["worker.profile.complete"])).toBeInTheDocument();
+    const notice = screen.getByText(en["worker.verifyNotice.title"]).closest("[role]") as HTMLElement;
+    expect(within(notice).getByText(en["worker.eligibility.reason.identity_not_started"])).toBeInTheDocument();
+    expect(within(notice).getByRole("link", { name: en["worker.verifyNotice.action"] })).toHaveAttribute("href", "/worker/verify");
+    for (const heading of [en["worker.eligibility.heading"], en["worker.identity.heading"], en["worker.profile.heading"], en["home.phoneStatus"]]) {
+      expect(screen.queryByRole("heading", { name: heading })).not.toBeInTheDocument();
+    }
+    // Receiving requests is a main card, and Performance replaces the side cards.
+    expect(screen.getByRole("region", { name: en["worker.accepting.label"] })).toBeInTheDocument();
+    expect(screen.getByText(en["worker.accepting.onLong"])).toBeInTheDocument();
+    const performance = within(await screen.findByRole("region", { name: en["perf.heading"] }));
+    expect(await performance.findByText(en["rec.noReviews"])).toBeInTheDocument(); // no reviews: no empty chart
+    expect(performance.getByText(en["perf.invitations"])).toBeInTheDocument();
+    expect(screen.queryByText(en["next.worker.verify.title"])).not.toBeInTheDocument(); // the notice says it once
+    expect(screen.queryByRole("link", { name: /voice/i })).not.toBeInTheDocument(); // the voice test page is a developer tool
+  });
+
+  it("drops the notice once verification counts in this deployment", async () => {
+    mockApi({ ...bootHandlers(worker()), ...workerHandlers(makeDashboard(null, verified)) });
+    renderApp("/worker", "en");
+    await screen.findByRole("heading", { level: 1, name: en["worker.dashboard.title"] });
+    expect(screen.queryByText(en["worker.verifyNotice.title"])).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: en["worker.verifyNotice.action"] })).not.toBeInTheDocument();
+  });
+
+  it("a verification that does not count here keeps the notice with the reason", async () => {
+    mockApi({ ...bootHandlers(worker()), ...workerHandlers(makeDashboard(null, {
+      identity: { ...verified.identity, counts_here: false },
+      eligibility: { can_take_jobs: false, receives_requests: false, reasons: ["demo_approval_not_accepted_here"] } })) });
+    renderApp("/worker", "en");
+    expect(await screen.findByText(en["worker.verifyNotice.title"])).toBeInTheDocument();
+    expect(screen.getByText(en["worker.eligibility.reason.demo_approval_not_accepted_here"])).toBeInTheDocument();
+  });
+
+  it("pauses and resumes receiving requests with one toggle, keeping the state when saving fails", async () => {
+    let accepting = true;
+    let fail = false;
+    const calls = mockApi({
+      ...bootHandlers(worker()), ...workerHandlers(makeDashboard(null, verified)),
+      "PATCH /api/v1/workers/me/preferences/": (init) => {
+        if (fail) return jsonResponse(errorEnvelope("server_error", "r1"), 500);
+        accepting = (JSON.parse(String(init.body)) as { accepting_requests: boolean }).accepting_requests;
+        const next = makeDashboard(null, verified) as { profile: Record<string, unknown> };
+        return jsonResponse({ ...next, profile: { ...next.profile, accepting_requests: accepting } });
+      },
+    });
+    renderApp("/worker", "en");
+    const card = within(await screen.findByRole("region", { name: en["worker.accepting.label"] }));
+    await userEvent.click(card.getByRole("button", { name: en["worker.accepting.turnOff"] }));
+    expect(await card.findByText(en["worker.accepting.offLong"])).toBeInTheDocument();
+    expect(calls.find((call) => call.method === "PATCH")?.body).toEqual({ accepting_requests: false });
+    fail = true;
+    await userEvent.click(card.getByRole("button", { name: en["worker.accepting.turnOn"] }));
+    expect(await card.findByRole("alert")).toBeInTheDocument();
+    expect(card.getByText(en["worker.accepting.offLong"])).toBeInTheDocument(); // unchanged after the failure
+    fail = false;
+    await userEvent.click(card.getByRole("button", { name: en["worker.accepting.turnOn"] }));
+    expect(await card.findByText(en["worker.accepting.onLong"])).toBeInTheDocument();
+    expect(accepting).toBe(true);
+  });
+
+  it("My profile is its own page with the edit actions; old #profile links go there", async () => {
+    mockApi({ ...bootHandlers(worker()), ...workerHandlers(makeDashboard(null, verified)) });
+    const { router } = renderApp("/worker", "en");
+    const menu = within(await screen.findByRole("navigation", { name: en["nav.mainMenu"] }));
+    expect(menu.getByRole("link", { name: en["nav.profile"] })).toHaveAttribute("href", "/worker/profile");
+    await userEvent.click(menu.getByRole("link", { name: en["nav.profile"] }));
+    expect(await screen.findByRole("heading", { level: 1, name: en["nav.profile"] })).toBeInTheDocument();
     expect(screen.getByText("Ceiling fan installation")).toBeInTheDocument(); // main speciality label
     expect(screen.getByRole("link", { name: en["worker.profile.editWork"] })).toHaveAttribute("href", "/worker/setup/work");
-    expect(screen.getByRole("link", { name: en["home.managePhone"] })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /voice/i })).not.toBeInTheDocument(); // the voice test page is a developer tool
+    expect(screen.getByRole("link", { name: en["worker.profile.editAreas"] })).toHaveAttribute("href", "/worker/setup/areas");
+    expect(screen.getByRole("link", { name: en["home.managePhone"] })).toHaveAttribute("href", "/account/phone");
+    expect(menu.getByRole("link", { name: en["nav.profile"] })).toHaveAttribute("aria-current", "page");
+
+    await act(() => router.navigate("/worker#profile"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/worker/profile"));
   });
 });
 

@@ -85,6 +85,7 @@ return "limit reached" (the app shows "could not run" with a retry).
 cd backend   # venv active
 python manage.py check_ai_providers --only interpretation      # Groq: English job → Urdu description, signup by voice
 python manage.py check_ai_providers --only agreement_check     # Groq: pitch example, revision, Roman Urdu, timing
+python manage.py check_ai_providers --only quote_terms         # quote by voice: Urdu "Rs. 1,200 labour, customer's materials, Friday 4–6 PM"
 python manage.py check_ai_providers --only text_to_speech --speak "کل شام دو پنکھے لگانے ہیں۔" --save-speech speech.mp3
 python manage.py check_ai_providers --only speech_to_text --audio speech.mp3 --language ur   # Scribe
 ```
@@ -275,6 +276,24 @@ keep their "not real AI" label. Use fictional phone numbers.
 `/conversations/:id/quote` (the worker writes or revises at `?edit=1`) → **Work progress** `/bookings/:id`. A compact
 step header on each screen shows where the job stands and links to the other stages. Old conversation and booking links
 keep working.
+
+**Worker dashboard:** the next step, **Receive new job requests** (pause / resume), job invitations, bookings,
+**Performance** and work history.
+- **Performance** shows ratings per star with the real average and count, or "No reviews yet". It also shows
+  invitations received against jobs completed, as lifetime totals from `GET /workers/me/stats/`.
+- **My profile** is its own page (`/worker/profile`, with Edit work and Edit areas); old `/worker#profile` links go
+  there.
+- One notice asks the worker to verify while identity does not count in this deployment. It disappears after a
+  valid approval.
+
+**Quote:** the work, labour price, materials and time are always visible. Inspection-only, the visit fee and
+exclusions are under **More options**.
+- **Answer by voice** (optional) fills only clearly stated terms into empty fields. A value the worker already
+  typed is kept unless they tap **Use**. The worker checks everything and presses **Send quote**; voice never sends.
+
+**Find a worker:** each card shows the worker's expected availability for the requested time (free, free from …,
+next expected availability …, or uncertain while a job runs late). Busy workers stay listed. Booking still re-checks
+the schedule on the server.
 
 **Developer diagnostics** are outside the normal navigation: open **http://localhost:5173/diagnostics** for server and
 database readiness and the provider configuration the server reports, with a link to `/voice-test`.

@@ -43,6 +43,7 @@ class Purpose(models.TextChoices):
     REPORT = "report", "Private report or evidence (never transcribed)"
     ONBOARDING_WORK = "onboarding_work", "Worker signup: my work (answered by voice)"
     ONBOARDING_AREAS = "onboarding_areas", "Worker signup: my areas (answered by voice)"
+    QUOTE_TERMS = "quote_terms", "Worker quote: terms answered by voice (suggestions only)"
 
 
 class AudioClip(models.Model):
